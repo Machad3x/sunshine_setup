@@ -1,0 +1,127 @@
+> **Nota:** Este projeto foi vibe-coded com auxílio de IA.
+
+# Script de Configuração do Sunshine para Linux
+
+Script automatizado de instalação e configuração do [Sunshine](https://github.com/LizardByte/Sunshine) (servidor de streaming de jogos) e de monitor virtual para KDE Plasma (Wayland) em distribuições Linux tradicionais e sistemas imutáveis/atômicos.
+
+Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automação de monitor virtual do projeto **Bazzite**.
+
+---
+
+## 🚀 Funcionalidades
+
+- **Suporte Multidistro Nativo**:
+  - **Fedora**: Instalado via COPR (`lizardbyte/stable`).
+  - **Arch Linux**: Instalado via AUR (`sunshine-bin`) utilizando `yay` ou `paru`.
+  - **CachyOS**: Instalado via repositórios oficiais (`pacman -S sunshine`).
+  - **Ubuntu / Debian**: Obtém e instala automaticamente pacotes `.deb` compatíveis diretamente do repositório upstream.
+- **Proteção para Sistemas Imutáveis**:
+  - Compatibilidade completa com **Fedora Silverblue**, **Kinoite**, **Bazzite**, **Bluefin**, **Aurora**, **SteamOS**, **openSUSE MicroOS**, `bootc` e outros sistemas atômicos.
+  - Execução de gerenciadores de pacotes nativos (`dnf`, `pacman`, `apt`) é **estritamente bloqueada** em sistemas imutáveis.
+  - Redirecionamento automático para instalação via **Flatpak**.
+- **Escopos Flexíveis no Flatpak**:
+  - Permite escolher o escopo de instalação do Flatpak: `--system` (global) ou `--user` (apenas para o usuário atual).
+- **Integração com Monitor Virtual**:
+  - Automação para disponibilização de telas virtuais no KDE Plasma (Wayland) usando `krfb-virtualmonitor` e `kscreen-doctor`.
+  - Ajuste dinâmico de resolução e taxa de quadros de acordo com o cliente Moonlight (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS).
+- **Correções e Ferramentas de Manutenção**:
+  - **Correção do Erro 503**: Aplica a variável `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` para ajustar permissões no KWin Wayland.
+  - **Configuração de Firewall**: Detecção automática de `firewalld` ou `ufw` e liberação das portas necessárias para streaming e mDNS.
+  - **Desinstalação Limpa**: Remove scripts de monitor virtual, ganchos pós-execução do systemd e configurações da aplicação Sunshine.
+
+---
+
+## 🐧 Distribuições Suportadas
+
+| Tipo de Distribuição | Distribuições / Sistemas Suportados | Método de Instalação Permitido |
+| :--- | :--- | :--- |
+| **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Pacote Nativo **ou** Flatpak |
+| **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
+
+---
+
+## 🛠️ Pré-requisitos do Sistema
+
+### Requisitos Gerais
+- **Usuário Padrão**: Execute o script como usuário comum (evite usar `sudo bash ...`). O script solicitará elevação de privilégios (`sudo`) apenas quando estritamente necessário.
+
+### Requisitos para Monitor Virtual (Opção 2)
+- **Ambiente de Trabalho**: **KDE Plasma 6 (Wayland)**.
+- **Pacotes Necessários**:
+  - `krfb-virtualmonitor` (integrante do pacote `krfb`)
+  - `kscreen-doctor` (integrante do pacote `libkscreen` / `kscreen`)
+  - `jq`
+- *Nota para Distros Imutáveis*: O script verifica a presença desses binários no sistema base. Caso algum esteja ausente, instale-os via `rpm-ostree` e reinicie o sistema:
+  ```bash
+  rpm-ostree install krfb kscreen jq
+  sudo systemctl reboot
+  ```
+
+---
+
+## 📋 Instalação e Uso
+
+Conceda permissão de execução ao script antes de iniciar:
+
+```bash
+chmod +x sunshine-setup.sh
+```
+
+### 1. Modo Interativo
+Execute o script sem argumentos para abrir o menu de seleção interativo:
+
+```bash
+./sunshine-setup.sh
+```
+
+### 2. Uso Direto via Linha de Comando (CLI)
+
+| Comando | Descrição |
+| :--- | :--- |
+| `./sunshine-setup.sh install` | Menu interativo para seleção do método de instalação. |
+| `./sunshine-setup.sh install --flatpak-system` | Força a instalação via Flatpak (Escopo do Sistema / `--system`). |
+| `./sunshine-setup.sh install --flatpak-user` | Força a instalação via Flatpak (Escopo do Usuário / `--user`). |
+| `./sunshine-setup.sh install --native` | Força instalação nativa (Bloqueado em sistemas imutáveis). |
+| `./sunshine-setup.sh vmon` | Configura o automapamento do monitor virtual no KDE Plasma. |
+| `./sunshine-setup.sh 503` | Aplica a correção de permissão no Moonlight / KWin para o Erro 503. |
+| `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
+| `./sunshine-setup.sh remove` | Remove a configuração do monitor virtual e limpa os scripts gerados. |
+| `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
+
+---
+
+## 🖥️ Instruções de Configuração do Monitor Virtual
+
+Para habilitar a troca dinâmica de resolução durante o streaming com o Moonlight:
+
+1. Execute a configuração do monitor virtual:
+   ```bash
+   ./sunshine-setup.sh vmon
+   ```
+2. Acesse a interface web do Sunshine no navegador: `https://localhost:47990`
+3. Navegue até **Configuration > Audio/Video**.
+4. Altere o parâmetro **Capture Method** para **`KWin Screencast`**.
+5. Salve as alterações e reinicie o serviço do Sunshine:
+   - **Para Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
+   - **Para Instalação Nativa**: `systemctl --user restart sunshine`
+
+---
+
+## 🛡️ Configuração de Firewall
+
+O Sunshine requer portas específicas para funcionar. Execute o utilitário de firewall para detectar e liberar as portas no seu sistema automaticamente:
+
+```bash
+./sunshine-setup.sh firewall
+```
+
+**Portas Configuradas:**
+- **TCP**: `47984`, `47989`, `48010` *(Opcional: `47990` para a Interface Web na rede local)*
+- **UDP**: `47998`, `47999`, `48000`, `48002`
+- **mDNS**: `5353/udp` *(para descoberta automática pelo Moonlight)*
+
+---
+
+## 📄 Licença
+
+Distribuído sob a Licença MIT. Sinta-se à vontade para modificar e adaptar o script em suas imagens personalizadas ou rotinas pós-instalação de distribuições.
