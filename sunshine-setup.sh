@@ -173,7 +173,10 @@ print_system_info() {
   echo "  ${dim}System:${normal}   ${PRETTY_NAME:-$DISTRO}"
   echo "  ${dim}Desktop:${normal}  ${XDG_CURRENT_DESKTOP:-unknown}"
   echo "  ${dim}Sunshine:${normal} $sun_status"
-  [[ -n $imm_marker ]] && echo "  ${dim}Mode:${normal}     $imm_marker"
+  if [[ -n $imm_marker ]]; then
+    echo "  ${dim}Mode:${normal}     $imm_marker"
+  fi
+  return 0
 }
 
 print_main_menu() {
