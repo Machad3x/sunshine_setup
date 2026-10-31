@@ -1,26 +1,20 @@
 #!/usr/bin/env bash
-# Sunshine setup for Fedora, Arch, CachyOS, Ubuntu and Debian (KDE Plasma, Wayland for the virtual monitor).
+# Sunshine setup for Fedora, Arch, CachyOS, Ubuntu and Debian
+# (KDE Plasma, Wayland for the virtual monitor).
 # Ported from the Bazzite "setup-sunshine" ujust recipe and its virtual monitor scripts.
 #
 # Distro notes:
 #   - Fedora:    native via COPR lizardbyte/stable
 #   - Arch:      native via AUR (sunshine-bin) using yay or paru
 #   - CachyOS:   native via pacman (repo package 'sunshine')
-#   - Ubuntu/Debian: native via upstream .deb (best-effort, falls back to Flatpak on mismatch)
-#   - Immutable systems (Silverblue, Kinoite, Bazzite, SteamOS, MicroOS, bootc, etc.):
-#       Flatpak only. Native package installation is not supported.
+#   - Ubuntu/Debian: native via upstream .deb (best-effort, falls back to Flatpak)
+#   - Immutable systems: Flatpak only.
 #
 # Interactive:  bash sunshine-setup.sh
-# Direct:       bash sunshine-setup.sh install [--flatpak-system|--flatpak-user|--native]
-#               bash sunshine-setup.sh vmon
-#               bash sunshine-setup.sh 503
-#               bash sunshine-setup.sh remove
-#               bash sunshine-setup.sh firewall
-#               bash sunshine-setup.sh service               (interactive service menu)
-#               bash sunshine-setup.sh {start|stop|restart|status|logs} [--native|--flatpak]
-#               bash sunshine-setup.sh repair                (native only: setcap + drop-in)
-# Run as a normal user (sudo is requested only when needed).
+# Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
+
+SCRIPT_VERSION="2.0.0"
 
 # ---------- colors ----------
 bold=$'\e[1m';  dim=$'\e[2m'
@@ -87,18 +81,15 @@ pkg_install() {
 native_installed()  { command -v sunshine >/dev/null 2>&1; }
 flatpak_installed() { command -v flatpak >/dev/null 2>&1 && flatpak info "$FLATPAK_ID" >/dev/null 2>&1; }
 
-# Returns the *actual* systemd user unit name for a native Sunshine install.
-# Recent packages ship "app-dev.lizardbyte.app.Sunshine.service"; older ones
-# shipped "sunshine.service" (or as an alias).
+# Returns the actual systemd user unit name for a native Sunshine install.
 native_unit() {
   local d
   for d in /usr/lib/systemd/user /etc/systemd/user "$HOME/.config/systemd/user"; do
-    [[ -f "$d/app-dev.lizardbyte.app.Sunshine.service" ]] && { echo "app-dev.lizardbyte.app.Sunshine.service"; return; }
+    [[ -f "$d/app-dev.lizardbyte.app.Sunshine.service" ]] && { echo "app-dev.lizardbyte.app.Sunshine.service"; return 0; }
   done
   for d in /usr/lib/systemd/user /etc/systemd/user "$HOME/.config/systemd/user"; do
-    [[ -f "$d/sunshine.service" ]] && { echo "sunshine.service"; return; }
+    [[ -f "$d/sunshine.service" ]] && { echo "sunshine.service"; return 0; }
   done
-  # Fallback: modern name (matches current Fedora/Arch/COPR packages)
   echo "app-dev.lizardbyte.app.Sunshine.service"
 }
 
@@ -156,7 +147,7 @@ print_banner() {
   local line="  ────────────────────────────────────────────────────────"
   echo
   echo "$line"
-  echo "  ${bold}Sunshine Setup${normal}"
+  echo "  ${bold}Sunshine Setup${normal}  ${dim}v${SCRIPT_VERSION}${normal}"
   echo "  ${dim}Fedora · Arch · CachyOS · Ubuntu · Debian · Immutable systems${normal}"
   echo "$line"
 }
@@ -204,7 +195,8 @@ print_main_menu() {
 
 usage() {
   cat <<EOF
-  ${bold}Sunshine Setup${normal} — Fedora · Arch · CachyOS · Ubuntu · Debian · Immutable systems
+  ${bold}Sunshine Setup${normal}  ${dim}v${SCRIPT_VERSION}${normal}
+  Fedora · Arch · CachyOS · Ubuntu · Debian · Immutable systems
 
   ${bold}Usage:${normal}
     bash $0 [command] [args...]
@@ -216,12 +208,21 @@ usage() {
     remove                                                Remove the virtual monitor
     firewall                                              Open Sunshine's firewall ports
     service                                               Interactive service menu
-    start   [--native|--flatpak]                          Start Sunshine service
-    stop    [--native|--flatpak]                          Stop Sunshine service
-    restart [--native|--flatpak]                          Restart Sunshine service
-    status  [--native|--flatpak]                          Show systemctl status
-    logs    [--native|--flatpak]                          Show last 50 log lines
-    repair                                                Repair native startup (setcap + drop-in)
+
+  ${bold}Service control:${normal}
+    start    [--native|--flatpak]   Start service
+    stop     [--native|--flatpak]   Stop service
+    restart  [--native|--flatpak]   Restart service
+    enable   [--native|--flatpak]   Enable auto-start at login
+    disable  [--native|--flatpak]   Disable auto-start at login
+    status   [--native|--flatpak]   Show systemctl status
+    logs     [--native|--flatpak]   Show last 50 log lines
+    follow   [--native|--flatpak]   Follow logs live (Ctrl+C to stop)
+    repair   [--native|--flatpak]   Apply startup fixes (setcap + drop-in)
+
+  ${bold}Options:${normal}
+    -h, --help        Show this help
+    -v, --version     Show version
 
   With no arguments, an interactive menu is shown.
 
@@ -235,39 +236,29 @@ usage() {
 EOF
 }
 
-# ---------- service helpers ----------
+# ---------- service status / repair helpers ----------
+unit_exists() {
+  systemctl --user cat "$1" >/dev/null 2>&1
+}
+
 print_service_status() {
   local unit=$1 enabled active
+  if ! unit_exists "$unit"; then
+    echo "  ${red}Unit not found:${normal} $unit"
+    return 1
+  fi
   systemctl --user is-enabled --quiet "$unit" 2>/dev/null \
     && enabled="${green}enabled${normal}" || enabled="${dim}disabled${normal}"
   systemctl --user is-active --quiet "$unit" 2>/dev/null \
-    && active="${green}active${normal}" || active="${red}inactive${normal}"
+    && active="${green}active (running)${normal}" || active="${red}inactive${normal}"
   echo "  ${dim}Unit:${normal}    $unit"
   echo "  ${dim}Enabled:${normal} $enabled"
   echo "  ${dim}Active:${normal}  $active"
+  return 0
 }
 
-# Apply setcap + systemd drop-in for the native install.
-repair_native_startup() {
-  if ! native_installed; then
-    echo "${red}Native Sunshine is not installed.${normal}" >&2
-    return 1
-  fi
-
-  local bin unit dropin
-  bin=$(readlink -f "$(command -v sunshine)")
-
-  # 1) CAP_SYS_ADMIN so KMS capture works as a user service
-  if command -v setcap >/dev/null 2>&1; then
-    sudo setcap cap_sys_admin+p "$bin" 2>/dev/null \
-      || echo "  ${yellow}Warning:${normal} setcap failed; KMS capture may not work."
-    echo "  ${dim}setcap:${normal}  $(getcap "$bin" 2>/dev/null || echo 'not applied')"
-  else
-    echo "  ${yellow}Warning:${normal} setcap not found. Install 'libcap' (Fedora/Arch) or 'libcap2-bin' (Debian)."
-  fi
-
-  # 2) Drop-in: order after graphical session, small delay, environment
-  unit=$(native_unit)
+configure_startup_dropin() {
+  local unit=$1 delay=${2:-5} dropin
   dropin="$HOME/.config/systemd/user/${unit}.d"
   mkdir -p "$dropin"
   {
@@ -276,84 +267,210 @@ repair_native_startup() {
     echo "Wants=graphical-session.target"
     echo
     echo "[Service]"
-    echo "ExecStartPre=/bin/sleep 5"
+    if [[ -n $delay && $delay != 0 ]]; then
+      echo "ExecStartPre=/bin/sleep $delay"
+    fi
     echo "Environment=XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-KDE}"
     echo "Environment=XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-wayland}"
+    if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+      echo "Environment=WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+    fi
   } > "$dropin/override.conf"
-  if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
-    echo "Environment=WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >> "$dropin/override.conf"
-  fi
   echo "  ${dim}drop-in:${normal}  $dropin/override.conf"
+}
 
-  # 3) Reload, enable, restart
+repair_native_startup() {
+  if ! native_installed; then
+    echo "${red}Native Sunshine is not installed.${normal}" >&2
+    return 1
+  fi
+
+  local bin unit
+  bin=$(readlink -f "$(command -v sunshine)")
+
+  if command -v setcap >/dev/null 2>&1; then
+    sudo setcap cap_sys_admin+p "$bin" 2>/dev/null \
+      || echo "  ${yellow}Warning:${normal} setcap failed; KMS capture may not work."
+    echo "  ${dim}setcap:${normal}  $(getcap "$bin" 2>/dev/null || echo 'not applied')"
+  else
+    echo "  ${yellow}Warning:${normal} setcap not found. Install 'libcap' (Fedora/Arch) or 'libcap2-bin' (Debian)."
+  fi
+
+  unit=$(native_unit)
+  configure_startup_dropin "$unit" 5
+
   systemctl --user disable --now sunshine.service 2>/dev/null || true
   systemctl --user daemon-reload
   systemctl --user enable "$unit" 2>/dev/null || true
   if systemctl --user restart "$unit" 2>/dev/null; then
     echo "  ${green}Service restarted.${normal}"
   else
-    echo "  ${yellow}Service configured but failed to restart. Check: journalctl --user -u $unit -n 50${normal}"
+    echo "  ${yellow}Configured but failed to restart. Check: journalctl --user -u $unit -n 50${normal}"
   fi
 }
 
-# Non-interactive service action. $1 = start|stop|restart|status|logs, $2 = optional scope
+repair_flatpak_startup() {
+  if ! flatpak_installed; then
+    echo "${red}Sunshine Flatpak is not installed.${normal}" >&2
+    return 1
+  fi
+
+  configure_startup_dropin "$FLATPAK_UNIT" 0
+
+  systemctl --user disable --now sunshine.service 2>/dev/null || true
+  systemctl --user daemon-reload
+  systemctl --user enable "$FLATPAK_UNIT" 2>/dev/null || true
+  if systemctl --user restart "$FLATPAK_UNIT" 2>/dev/null; then
+    echo "  ${green}Flatpak service restarted.${normal}"
+  else
+    echo "  ${yellow}Configured but failed to restart. Check: journalctl --user -u $FLATPAK_UNIT -n 50${normal}"
+  fi
+}
+
+repair_startup() {
+  local scope="${1:-}"
+  case $scope in
+    --native)  repair_native_startup;  return ;;
+    --flatpak) repair_flatpak_startup; return ;;
+  esac
+  if native_installed && flatpak_installed; then
+    pick_mode || return 1
+    if [[ $MODE == flatpak ]]; then repair_flatpak_startup; else repair_native_startup; fi
+  elif native_installed; then
+    repair_native_startup
+  elif flatpak_installed; then
+    repair_flatpak_startup
+  else
+    echo "${red}Sunshine is not installed.${normal}" >&2
+    return 1
+  fi
+}
+
 service_action() {
   local action=$1 scope="${2:-}" unit
   case $scope in
-    --native)  unit=$(native_unit) ;;
-    --flatpak) unit=$FLATPAK_UNIT ;;
-    *)
+    --native)
+      if ! native_installed; then
+        echo "${red}Native Sunshine is not installed.${normal} Use 'install --native' first." >&2
+        return 1
+      fi
+      unit=$(native_unit)
+      ;;
+    --flatpak)
+      if ! flatpak_installed; then
+        echo "${red}Sunshine Flatpak is not installed.${normal} Use 'install --flatpak-system' or 'install --flatpak-user' first." >&2
+        return 1
+      fi
+      unit=$FLATPAK_UNIT
+      ;;
+    "")
       pick_mode || return 1
       if [[ $MODE == flatpak ]]; then unit=$FLATPAK_UNIT; else unit=$(native_unit); fi
+      ;;
+    *)
+      echo "Unknown scope: $scope" >&2
+      return 1
       ;;
   esac
   case $action in
     start)   systemctl --user start   "$unit" && echo "  ${green}Started${normal} $unit"   || { echo "  ${red}Failed to start $unit${normal}" >&2;   return 1; } ;;
     stop)    systemctl --user stop    "$unit" && echo "  ${green}Stopped${normal} $unit"   || { echo "  ${red}Failed to stop $unit${normal}" >&2;    return 1; } ;;
     restart) systemctl --user restart "$unit" && echo "  ${green}Restarted${normal} $unit" || { echo "  ${red}Failed to restart $unit${normal}" >&2; return 1; } ;;
+    enable)  systemctl --user enable  "$unit" && echo "  ${green}Enabled${normal} $unit (auto-start at login)" || { echo "  ${red}Failed to enable${normal}" >&2; return 1; } ;;
+    disable) systemctl --user disable "$unit" && echo "  ${green}Disabled${normal} $unit" || { echo "  ${red}Failed to disable${normal}" >&2; return 1; } ;;
     status)  systemctl --user status "$unit" --no-pager || true ;;
     logs)    journalctl --user -u "$unit" -n 50 --no-pager || true ;;
+    follow)  journalctl --user -u "$unit" -n 50 -f ;;
   esac
 }
 
-# Interactive service menu.
 manage_service() {
   pick_mode || return 1
   local unit
   if [[ $MODE == flatpak ]]; then unit=$FLATPAK_UNIT; else unit=$(native_unit); fi
 
+  local back_num=9
+  [[ $MODE == native ]] && back_num=10
+
   while true; do
     echo
-    echo "  ${bold}Sunshine service${normal}"
-    print_service_status "$unit"
+    echo "  ${bold}Sunshine service${normal}  ${dim}($MODE)${normal}"
+    print_service_status "$unit" || true
     echo
     printf "  ${cyan}1${normal})  Start\n"
     printf "  ${cyan}2${normal})  Stop\n"
     printf "  ${cyan}3${normal})  Restart\n"
-    printf "  ${cyan}4${normal})  Show status (systemctl --user status)\n"
-    printf "  ${cyan}5${normal})  Show logs (last 50 lines)\n"
+    printf "  ${cyan}4${normal})  Enable  (auto-start at login)\n"
+    printf "  ${cyan}5${normal})  Disable (no auto-start)\n"
+    printf "  ${cyan}6${normal})  Show status  (systemctl --user status)\n"
+    printf "  ${cyan}7${normal})  Show logs    (last 50 lines)\n"
+    printf "  ${cyan}8${normal})  Follow logs  (live, Ctrl+C to stop)\n"
     if [[ $MODE == native ]]; then
-      printf "  ${cyan}6${normal})  Repair native startup (setcap + drop-in)\n"
+      printf "  ${cyan}9${normal})  Repair native startup (setcap + drop-in)\n"
     fi
-    printf "  ${cyan}7${normal})  Back\n"
+    printf "  ${cyan}%d${normal})  Back\n" "$back_num"
     echo
-    printf "  ${bold}Select [1-7]:${normal} "
+    printf "  ${bold}Select [1-%d]:${normal} " "$back_num"
+
     local choice
     if ! read -r choice; then echo; return 0; fi
+    [[ -z $choice ]] && continue
+    if [[ ! $choice =~ ^[0-9]+$ ]]; then
+      printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1; continue
+    fi
+    if (( choice == back_num )); then return 0; fi
     case "$choice" in
       1) systemctl --user start   "$unit" && echo "  ${green}Started${normal}"   || echo "  ${red}Failed to start${normal}" ;;
       2) systemctl --user stop    "$unit" && echo "  ${green}Stopped${normal}"   || echo "  ${red}Failed to stop${normal}" ;;
       3) systemctl --user restart "$unit" && echo "  ${green}Restarted${normal}" || echo "  ${red}Failed to restart${normal}" ;;
-      4) systemctl --user status "$unit" --no-pager || true ;;
-      5) journalctl --user -u "$unit" -n 50 --no-pager || true ;;
-      6) [[ $MODE == native ]] && repair_native_startup ;;
-      7) return 0 ;;
+      4) systemctl --user enable  "$unit" && echo "  ${green}Enabled${normal}"   || echo "  ${red}Failed to enable${normal}" ;;
+      5) systemctl --user disable "$unit" && echo "  ${green}Disabled${normal}"  || echo "  ${red}Failed to disable${normal}" ;;
+      6) systemctl --user status "$unit" --no-pager || true ;;
+      7) journalctl --user -u "$unit" -n 50 --no-pager || true ;;
+      8) journalctl --user -u "$unit" -n 50 -f ;;
+      9) if [[ $MODE == native ]]; then repair_native_startup; fi ;;
       *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1 ;;
     esac
   done
 }
 
-# ---------- option 1: install Sunshine ----------
+# ---------- pick which installed Sunshine to configure ----------
+pick_mode() {
+  local n=0 f=0
+  native_installed  && n=1
+  flatpak_installed && f=1
+
+  if (( IMMUTABLE )); then
+    if (( f )); then
+      MODE=flatpak
+      echo "  Immutable system detected. Using Sunshine: ${bold}flatpak${normal}"
+    else
+      echo "${red}Sunshine Flatpak is not installed.${normal} Use option 1 first." >&2
+      return 1
+    fi
+  elif (( n && f )); then
+    echo
+    echo "  ${bold}Both native and Flatpak Sunshine are installed. Which one?${normal}"
+    echo "  ${dim}(Tip: use --native or --flatpak on the command line to skip this prompt.)${normal}"
+    choose "Mode" "Native" "Flatpak" || return 1
+    case "$REPLY" in 1) MODE=native ;; 2) MODE=flatpak ;; esac
+  elif (( n )); then MODE=native
+  elif (( f )); then MODE=flatpak
+  else
+    echo "${red}Sunshine is not installed.${normal} Use option 1 first." >&2
+    return 1
+  fi
+
+  if [[ $MODE == flatpak ]]; then
+    APP_CONF="$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"
+    UNIT="$FLATPAK_UNIT"
+  else
+    APP_CONF="$HOME/.config/sunshine/apps.json"
+    UNIT="$(native_unit)"
+  fi
+}
+
+# ---------- install ----------
 install_deb() {
   if (( IMMUTABLE )); then
     echo "${red}Native .deb installation is not supported on immutable systems.${normal}" >&2
@@ -410,11 +527,7 @@ install_flatpak() {
   flatpak run --command=additional-install.sh "$FLATPAK_ID" \
     || echo "  ${yellow}Warning:${normal} additional-install.sh returned non-zero (udev/input rules may need manual setup)."
 
-  systemctl --user disable --now sunshine.service 2>/dev/null || true
-  systemctl --user daemon-reload
-  systemctl --user enable "$FLATPAK_UNIT" 2>/dev/null || true
-  systemctl --user start  "$FLATPAK_UNIT" 2>/dev/null \
-    || echo "  ${yellow}Sunshine service not started (no graphical session?).${normal}"
+  repair_flatpak_startup
 
   local conf="$HOME/.var/app/$FLATPAK_ID/config/sunshine/sunshine.conf"
   local found=0
@@ -427,7 +540,11 @@ install_flatpak() {
     mkdir -p "$(dirname "$conf")"
     touch "$conf"
   fi
+
+  echo
   echo "  ${bold}Flatpak installed ($scope).${normal} Web UI: https://localhost:47990"
+  echo
+  print_service_status "$FLATPAK_UNIT" || true
 }
 
 install_native() {
@@ -468,13 +585,14 @@ install_native() {
     debian) install_deb debian "${VERSION_CODENAME:-${DEBIAN_CODENAME:-}}" trixie bookworm ;;
   esac
 
-  # Disable flatpak unit if it exists (avoid port conflict)
   flatpak_installed && systemctl --user disable --now "$FLATPAK_UNIT" 2>/dev/null || true
 
-  # Configure the native service: setcap + drop-in + start
   repair_native_startup
 
+  echo
   echo "  ${bold}Native Sunshine installed.${normal} Web UI: https://localhost:47990"
+  echo
+  print_service_status "$(native_unit)" || true
 }
 
 action_install() {
@@ -516,42 +634,7 @@ action_install() {
   esac
 }
 
-# ---------- pick which installed Sunshine to configure (option 2 / 6) ----------
-pick_mode() {
-  local n=0 f=0
-  native_installed  && n=1
-  flatpak_installed && f=1
-
-  if (( IMMUTABLE )); then
-    if (( f )); then
-      MODE=flatpak
-      echo "  Immutable system detected. Using Sunshine: ${bold}flatpak${normal}"
-    else
-      echo "${red}Sunshine Flatpak is not installed.${normal} Use option 1 first." >&2
-      return 1
-    fi
-  elif (( n && f )); then
-    echo
-    echo "  ${bold}Both native and Flatpak Sunshine are installed. Which one?${normal}"
-    choose "Mode" "Native" "Flatpak" || return 1
-    case "$REPLY" in 1) MODE=native ;; 2) MODE=flatpak ;; esac
-  elif (( n )); then MODE=native
-  elif (( f )); then MODE=flatpak
-  else
-    echo "${red}Sunshine is not installed.${normal} Use option 1 first." >&2
-    return 1
-  fi
-
-  if [[ $MODE == flatpak ]]; then
-    APP_CONF="$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"
-    UNIT="$FLATPAK_UNIT"
-  else
-    APP_CONF="$HOME/.config/sunshine/apps.json"
-    UNIT="$(native_unit)"
-  fi
-}
-
-# ---------- option 2: virtual monitor ----------
+# ---------- virtual monitor ----------
 setup_vmon() {
   if [[ "${XDG_CURRENT_DESKTOP:-}" != *KDE* ]]; then
     echo "  ${yellow}Warning:${normal} the virtual monitor only works on KDE Plasma (KWin, Wayland)."
@@ -587,6 +670,8 @@ setup_vmon() {
       echo "${red}kscreen-doctor not found.${normal} It ships with KDE's kscreen/libkscreen package; is Plasma installed?" >&2; return 1; }
     command -v krfb-virtualmonitor >/dev/null || {
       echo "${red}krfb-virtualmonitor not found.${normal} Requires a recent krfb release." >&2; return 1; }
+    command -v jq >/dev/null || {
+      echo "${red}jq not found.${normal} Install 'jq' manually and re-run." >&2; return 1; }
   fi
 
   sudo mkdir -p "$BIN_DIR"
@@ -744,7 +829,7 @@ EOF
 MSG
 }
 
-# ---------- option 3: fix Error 503 ----------
+# ---------- Error 503 ----------
 fix_503() {
   if [[ "${XDG_SESSION_TYPE:-}" != wayland ]] || [[ "${XDG_CURRENT_DESKTOP:-}" != *KDE* ]]; then
     echo "  ${yellow}Warning:${normal} this fix assumes KDE Plasma on Wayland (current session: ${XDG_SESSION_TYPE:-?}, desktop: ${XDG_CURRENT_DESKTOP:-?})."
@@ -757,7 +842,7 @@ fix_503() {
   echo "  ${yellow}Log out and back in (or reboot)${normal} for the variable to take effect in KWin."
 }
 
-# ---------- option 4: remove the virtual monitor ----------
+# ---------- remove virtual monitor ----------
 remove_vmon() {
   if [[ -x "$BIN_DIR/sunshine-stop-vmon" ]]; then
     "$BIN_DIR/sunshine-stop-vmon" 2>/dev/null || true
@@ -784,7 +869,7 @@ remove_vmon() {
   echo "  Virtual monitor removed. (The Error 503 fix was left untouched.)"
 }
 
-# ---------- option 5: open firewall ports (standalone) ----------
+# ---------- firewall ----------
 SUNSHINE_TCP=(47984 47989 48010)
 SUNSHINE_UDP=(47998 47999 48000 48002)
 WEBUI_PORT=47990
@@ -843,10 +928,14 @@ open_firewall() {
     for p in "${udp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/udp"; done
     sudo firewall-cmd --permanent --add-service=mdns
     sudo firewall-cmd --reload
+    echo "  ${dim}Current ports:${normal}"
+    sudo firewall-cmd --list-ports | sed 's/^/    /' || true
   else
     for p in "${tcp[@]}"; do sudo ufw allow "$p/tcp" comment 'Sunshine'; done
     for p in "${udp[@]}"; do sudo ufw allow "$p/udp" comment 'Sunshine'; done
     sudo ufw allow 5353/udp comment 'Sunshine mDNS'
+    echo "  ${dim}Current rules:${normal}"
+    sudo ufw status | grep -i sunshine | sed 's/^/    /' || true
   fi
   echo "  ${bold}Firewall ports opened.${normal}"
 }
@@ -860,8 +949,9 @@ run_action() {
     remove)   remove_vmon ;;
     firewall) open_firewall ;;
     service)  manage_service ;;
-    start|stop|restart|status|logs) service_action "$1" "${2:-}" ;;
-    repair)   repair_native_startup ;;
+    start|stop|restart|enable|disable|status|logs|follow)
+      service_action "$1" "${2:-}" ;;
+    repair)   repair_startup "${2:-}" ;;
     *) echo "Invalid action: $1" >&2; echo "Run 'bash $0 --help' for usage." >&2; exit 1 ;;
   esac
 }
@@ -881,7 +971,8 @@ main_menu() {
       4) run_action remove   || true ;;
       5) run_action firewall || true ;;
       6) run_action service  || true ;;
-      7) exit 0 ;;
+      7|q|Q|quit|exit) exit 0 ;;
+      "") continue ;;
       *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1; continue ;;
     esac
     echo
@@ -891,6 +982,7 @@ main_menu() {
 if [[ $# -ge 1 ]]; then
   case "$1" in
     -h|--help|help) usage; exit 0 ;;
+    -v|--version)   echo "sunshine-setup.sh $SCRIPT_VERSION"; exit 0 ;;
   esac
   run_action "$@"
   exit 0
