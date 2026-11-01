@@ -7,14 +7,16 @@
 #   - Fedora:    native via COPR lizardbyte/stable
 #   - Arch:      native via AUR (sunshine-bin) using yay or paru
 #   - CachyOS:   native via pacman (repo package 'sunshine')
-#   - Ubuntu/Debian: native via upstream .deb (best-effort, falls back to Flatpak)
-#   - Immutable systems: Flatpak only.
+#   - Ubuntu:    native via upstream .deb (best-effort, falls back to Flatpak)
+#   - Debian 13 (trixie):  native via upstream .deb
+#   - Debian 12 or 14+:    Flatpak only (native .deb deps are incompatible)
+#   - Immutable systems:   Flatpak only.
 #
 # Interactive:  bash sunshine-setup.sh
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.0.2"
 
 # ---------- colors ----------
 bold=$'\e[1m';  dim=$'\e[2m'
@@ -24,6 +26,13 @@ normal=$'\e[0m'
 BIN_DIR=/usr/local/bin
 FLATPAK_ID=dev.lizardbyte.app.Sunshine
 FLATPAK_UNIT=app-dev.lizardbyte.app.Sunshine.service
+
+# Debian releases that support native .deb installation.
+# Only Debian 13 (trixie) is supported: the official .deb is built against
+# trixie's libminiupnpc18 and libicu76. Debian 14+ (forky) ships newer
+# incompatible ABI versions; Debian 12 and older are out of support scope.
+DEBIAN_NATIVE_SUPPORTED_ID="13"
+DEBIAN_NATIVE_SUPPORTED_CODENAME="trixie"
 
 [[ $EUID -eq 0 ]] && { echo "Do not run this script as root." >&2; exit 1; }
 
@@ -56,6 +65,12 @@ is_immutable() {
 
 IMMUTABLE=0
 if is_immutable; then IMMUTABLE=1; fi
+
+# Returns 0 when this Debian system may use native .deb installation.
+debian_native_ok() {
+  [[ $DISTRO == debian ]] || return 0
+  [[ "${VERSION_ID:-}" == "$DEBIAN_NATIVE_SUPPORTED_ID" ]]
+}
 
 # ---------- helpers ----------
 apt_update_once() {
@@ -108,9 +123,11 @@ is_vmon_configured() {
 ubuntu_version() {
   if [[ ${ID:-} == ubuntu ]]; then echo "${VERSION_ID:-}"; return; fi
   case "${UBUNTU_CODENAME:-}" in
-    jammy) echo 22.04 ;;
-    noble) echo 24.04 ;;
-    *)     echo "" ;;
+    jammy)  echo 22.04 ;;
+    noble)  echo 24.04 ;;
+    plucky) echo 25.04 ;;
+    questing) echo 25.10 ;;
+    *)      echo "" ;;
   esac
 }
 
@@ -229,7 +246,11 @@ usage() {
   ${bold}Notes:${normal}
     - Arch uses yay or paru for AUR (sunshine-bin).
     - CachyOS uses pacman (repo package 'sunshine').
-    - Debian/Ubuntu use the upstream .deb (best effort; Flatpak as fallback).
+    - Ubuntu uses the upstream .deb (best effort; Flatpak as fallback).
+    - Debian 13 (trixie): native via upstream .deb.
+    - Debian 12 and 14+: Flatpak only. The official .deb is built against
+      trixie's library ABI (libminiupnpc18, libicu76); Debian 14+ (forky)
+      ships incompatible newer ABIs, and 12 is out of support.
     - Immutable systems (Silverblue, Kinoite, Bazzite, SteamOS, MicroOS, bootc, etc.)
       support Flatpak best. The native option is disabled.
     - Run as a normal user (sudo is requested only when needed).
@@ -471,35 +492,64 @@ pick_mode() {
 }
 
 # ---------- install ----------
+# Downloads the official .deb from the latest GitHub release.
+# URL pattern: sunshine_{version}-1+{os}{rel}_{arch}.deb
+#   - Debian 13:  sunshine_{v}-1+debiantrixie_amd64.deb
+#   - Ubuntu:     sunshine_{v}-1+ubuntu24.04_amd64.deb
+# `first` is the caller's preferred release (used only for a friendly warning).
+# Remaining arguments are fallback releases, tried in order.
 install_deb() {
   if (( IMMUTABLE )); then
     echo "${red}Native .deb installation is not supported on immutable systems.${normal}" >&2
     echo "Use the Flatpak option instead." >&2
     return 1
   fi
-  local os=$1 first=$2 rel used="" seen=" " url tmp arch
+  local os=$1 first=$2 rel used="" seen=" " url tmp arch version
   local base=https://github.com/LizardByte/Sunshine/releases/latest/download
   arch=$(dpkg --print-architecture)
   command -v curl >/dev/null || pkg_install curl
   tmp=$(mktemp --suffix=.deb)
   shift
+
+  # Get the latest version from the GitHub API
+  if command -v jq >/dev/null 2>&1; then
+    version=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
+      | jq -r '.tag_name // empty' | sed 's/^v//')
+  else
+    version=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
+      | grep -oP '"tag_name"\s*:\s*"\K[^"]+' | sed 's/^v//')
+  fi
+
+  if [[ -z $version ]]; then
+    rm -f "$tmp"
+    echo "${red}Could not determine the latest Sunshine version.${normal}" >&2
+    echo "Check your connection and try again, or use the Flatpak option." >&2
+    return 1
+  fi
+
+  echo "  ${dim}Latest Sunshine version:${normal} $version"
+
   for rel in "$@"; do
     if [[ -z $rel || $seen == *" $rel "* ]]; then continue; fi
     seen+="$rel "
-    url="$base/sunshine-$os-$rel-$arch.deb"
+    url="$base/sunshine_${version}-1+${os}${rel}_${arch}.deb"
     echo "  Trying $url"
     if curl -fsSL "$url" -o "$tmp"; then used=$rel; break; fi
   done
+
   if [[ -z $used ]]; then
     rm -f "$tmp"
-    echo "${red}No matching .deb found.${normal} See https://github.com/LizardByte/Sunshine/releases or use the Flatpak option." >&2
+    echo "${red}No matching .deb found for version $version.${normal}" >&2
+    echo "  Check https://github.com/LizardByte/Sunshine/releases or use the Flatpak option." >&2
     return 1
   fi
+
   if [[ -z $first ]]; then
     echo "  ${yellow}Could not determine your release; using the '$used' build.${normal} If dependencies fail, use the Flatpak option."
   elif [[ $used != "$first" ]]; then
     echo "  ${yellow}No .deb for your release; using the '$used' build.${normal} If dependencies fail, use the Flatpak option."
   fi
+
   apt_update_once
   sudo apt-get install -y "$tmp" || {
     rm -f "$tmp"
@@ -553,6 +603,23 @@ install_native() {
     echo "Use Flatpak instead." >&2
     return 1
   fi
+
+  # Debian: only 13 (trixie) supports native .deb.
+  if [[ $DISTRO == debian ]] && ! debian_native_ok; then
+    local dver="${VERSION_ID:-unknown}"
+    echo
+    echo "  ${red}Native Sunshine is not available on Debian ${dver}.${normal}"
+    echo
+    echo "  The official .deb is built against Debian 13 (trixie)'s library ABI"
+    echo "  (libminiupnpc18, libicu76). Debian 14+ (forky) ships newer,"
+    echo "  incompatible versions, and Debian 12 and older are out of scope."
+    echo
+    echo "  ${bold}Use the Flatpak installation instead:${normal}"
+    echo "    bash $0 install --flatpak-system   # system-wide"
+    echo "    bash $0 install --flatpak-user     # per-user"
+    return 1
+  fi
+
   echo "  Installing Sunshine (${bold}native${normal})..."
   case $DISTRO in
     fedora)
@@ -581,8 +648,14 @@ install_native() {
         return 1
       fi
       ;;
-    ubuntu) install_deb ubuntu "$(ubuntu_version)" 24.04 22.04 ;;
-    debian) install_deb debian "${VERSION_CODENAME:-${DEBIAN_CODENAME:-}}" trixie bookworm ;;
+    ubuntu)
+      # Same URL scheme as Debian 13, with numeric Ubuntu releases as fallbacks.
+      install_deb ubuntu "$(ubuntu_version)" 26.10 26.04 24.04 22.04
+      ;;
+    debian)
+      # Debian 13 only: upstream .deb is built against trixie's ABI.
+      install_deb debian "$DEBIAN_NATIVE_SUPPORTED_CODENAME" "$DEBIAN_NATIVE_SUPPORTED_CODENAME"
+      ;;
   esac
 
   flatpak_installed && systemctl --user disable --now "$FLATPAK_UNIT" 2>/dev/null || true
@@ -615,12 +688,29 @@ action_install() {
     return
   fi
 
+  # Debian other than 13 → Flatpak only.
+  if [[ $DISTRO == debian ]] && ! debian_native_ok; then
+    echo
+    echo "  ${yellow}Native Sunshine is not available on Debian ${VERSION_ID:-unknown}.${normal}"
+    echo "  Only Flatpak is supported on this Debian version."
+    echo "  ${dim}(See https://github.com/LizardByte/Sunshine for the upstream build matrix.)${normal}"
+    echo
+    choose "Method" "Flatpak (System scope)" "Flatpak (User scope)" "Back" || return 1
+    case "$REPLY" in
+      1) install_flatpak system ;;
+      2) install_flatpak user   ;;
+      3) return 0               ;;
+    esac
+    return
+  fi
+
   local source_name
   case $DISTRO in
     fedora)        source_name=COPR ;;
     arch)          source_name="AUR (yay/paru)" ;;
     cachyos)       source_name="pacman (CachyOS)" ;;
-    ubuntu|debian) source_name=".deb" ;;
+    ubuntu)        source_name=".deb" ;;
+    debian)        source_name=".deb (Debian 13 trixie)" ;;
   esac
 
   echo
