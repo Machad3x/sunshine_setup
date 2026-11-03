@@ -24,9 +24,10 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 - **Virtual Monitor Integration**:
   - Automated virtual display provisioning for KDE Plasma (Wayland) using `krfb-virtualmonitor` and `kscreen-doctor`.
   - Configures dynamic display resolution and frame-rate matching (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS).
+  - Saves the previously enabled displays and the original Sunshine `output_name`; restores them on stop and rolls back failed startup.
 - **Troubleshooting & Utility Actions**:
-  - **Error 503 Fix**: Applies `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` environment tweak for KWin Wayland permissions.
-  - **Firewall Setup**: Automatically detects `firewalld` or `ufw` and opens necessary network ports for streaming and mDNS discovery.
+  - **Error 503 Fix**: Adds `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` in a dedicated environment file; `503-reset` removes the setting.
+  - **Firewall Setup**: Automatically detects `firewalld` or `ufw` and opens necessary network ports for streaming and mDNS discovery, optionally restricted to an IPv4/IPv6 CIDR.
   - **Clean Uninstallation**: Removes virtual monitor scripts, systemd post-execution hooks, and Sunshine application configurations.
 
 ---
@@ -84,6 +85,7 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh install --native` | Force native package installation (Blocked on immutable systems). |
 | `./sunshine-setup.sh vmon` | Configure KDE Plasma virtual monitor automation. |
 | `./sunshine-setup.sh 503` | Apply the Moonlight / KWin permission fix for Error 503. |
+| `./sunshine-setup.sh 503-reset` | Revert the Error 503 environment setting added by this script. |
 | `./sunshine-setup.sh firewall` | Configure firewall rules for `firewalld` or `ufw`. |
 | `./sunshine-setup.sh remove` | Remove virtual monitor configuration and clean up scripts. |
 | `./sunshine-setup.sh --help` | Display script usage notes and options. |
@@ -105,6 +107,8 @@ To enable dynamic virtual resolution streaming with Moonlight:
    - **For Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **For Native**: `systemctl --user restart sunshine`
 
+The script remembers which physical displays were enabled before the virtual display started and restores those displays and the previous `output_name` setting when Sunshine stops. If startup fails, it attempts the same rollback.
+
 ---
 
 ## 🛡️ Firewall Configuration
@@ -119,6 +123,8 @@ Sunshine requires specific ports to operate. Run the standalone firewall helper 
 - **TCP**: `47984`, `47989`, `48010` (Optional: `47990` for Web UI access over LAN)
 - **UDP**: `47998`, `47999`, `48000`, `48002`
 - **mDNS**: `5353/udp` (for automatic Moonlight network discovery)
+
+The firewall setup asks whether to limit rules to a source CIDR (for example `192.168.1.0/24` or `fd00::/64`). Leave the input blank to keep the rules open to any source. Exposing the Web UI port is separately optional. Existing unrestricted rules are not removed, so check the current firewall rules before relying on a new CIDR restriction.
 
 ---
 

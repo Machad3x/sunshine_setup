@@ -24,9 +24,10 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 - **Integração com Monitor Virtual**:
   - Automação para disponibilização de telas virtuais no KDE Plasma (Wayland) usando `krfb-virtualmonitor` e `kscreen-doctor`.
   - Ajuste dinâmico de resolução e taxa de quadros de acordo com o cliente Moonlight (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS).
+  - Salva quais telas estavam habilitadas e o `output_name` original do Sunshine; restaura ambos ao parar e desfaz uma inicialização malsucedida.
 - **Correções e Ferramentas de Manutenção**:
-  - **Correção do Erro 503**: Aplica a variável `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` para ajustar permissões no KWin Wayland.
-  - **Configuração de Firewall**: Detecção automática de `firewalld` ou `ufw` e liberação das portas necessárias para streaming e mDNS.
+  - **Correção do Erro 503**: Adiciona `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` em um arquivo dedicado; `503-reset` remove a configuração.
+  - **Configuração de Firewall**: Detecta `firewalld` ou `ufw` e libera as portas necessárias para streaming e mDNS, com opção de restringir a um CIDR IPv4/IPv6.
   - **Desinstalação Limpa**: Remove scripts de monitor virtual, ganchos pós-execução do systemd e configurações da aplicação Sunshine.
 
 ---
@@ -84,6 +85,7 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh install --native` | Força instalação nativa (Bloqueado em sistemas imutáveis). |
 | `./sunshine-setup.sh vmon` | Configura o automapamento do monitor virtual no KDE Plasma. |
 | `./sunshine-setup.sh 503` | Aplica a correção de permissão no Moonlight / KWin para o Erro 503. |
+| `./sunshine-setup.sh 503-reset` | Reverte a configuração de Erro 503 adicionada por este script. |
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
 | `./sunshine-setup.sh remove` | Remove a configuração do monitor virtual e limpa os scripts gerados. |
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
@@ -105,6 +107,8 @@ Para habilitar a troca dinâmica de resolução durante o streaming com o Moonli
    - **Para Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **Para Instalação Nativa**: `systemctl --user restart sunshine`
 
+O script registra quais telas físicas estavam habilitadas antes da criação da tela virtual e restaura essas telas e o `output_name` original ao parar o Sunshine. Se a inicialização falhar, ele tenta fazer a mesma restauração.
+
 ---
 
 ## 🛡️ Configuração de Firewall
@@ -119,6 +123,8 @@ O Sunshine requer portas específicas para funcionar. Execute o utilitário de f
 - **TCP**: `47984`, `47989`, `48010` *(Opcional: `47990` para a Interface Web na rede local)*
 - **UDP**: `47998`, `47999`, `48000`, `48002`
 - **mDNS**: `5353/udp` *(para descoberta automática pelo Moonlight)*
+
+Durante a configuração, é possível restringir as regras a um CIDR de origem (por exemplo, `192.168.1.0/24` ou `fd00::/64`). Deixe o campo vazio para permitir acesso de qualquer origem. A exposição da interface Web é uma opção separada. Regras irrestritas existentes não são removidas; confira as regras atuais antes de depender da nova restrição por CIDR.
 
 ---
 
