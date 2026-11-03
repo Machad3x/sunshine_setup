@@ -25,6 +25,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
   - Separate KDE and Hyprland backends, selected from the active desktop session.
   - KDE provisions its display using `krfb-virtualmonitor` and `kscreen-doctor`.
   - Hyprland creates a headless output with `hyprctl` only for the Sunshine app session, then removes it after capture ends.
+  - Hyprland lifecycle hooks are maintained as standalone scripts and clean up a newly created output when startup fails.
   - Both backends match the client resolution and frame rate (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); the Hyprland backend configures Sunshine for `wlr` capture.
 - **Troubleshooting & Utility Actions**:
   - **Error 503 Fix**: Adds `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` in a dedicated environment file; `503-reset` removes the setting.
@@ -40,7 +41,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 | **Traditional Systems** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Native Package **or** Flatpak |
 | **Immutable / Atomic** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Flatpak Only** (`--system` / `--user`) |
 
-The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, then checks `ID_LIKE` from left to right and uses the first supported family. Unknown IDs are not matched by substring.
+The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, then checks `ID_LIKE` from left to right and uses the first supported family. Unknown IDs are not matched by substring. openSUSE MicroOS is recognized as immutable and uses Flatpak; native package installation is disabled.
 
 ---
 
@@ -53,13 +54,14 @@ The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, t
 - **Desktop Environment**: KDE Plasma (Wayland) or Hyprland (Wayland).
 - **Required Packages**:
   - `jq`
-- **KDE**: `krfb-virtualmonitor` (provided by `krfb`) and `kscreen-doctor` (provided by `libkscreen` / `kscreen`).
+- **KDE**: `krfb-virtualmonitor` (provided by `krfb`) and `kscreen-doctor` (provided by `libkscreen` on Fedora/Arch, `libkscreen-bin` on Debian/Ubuntu).
 - **Hyprland**: `hyprctl` (provided by Hyprland) and `flock` (provided by `util-linux`); run setup from an active Hyprland session.
-- *Immutable Systems Note*: The script checks for these host binaries. If missing, install them via OSTree layering and reboot:
+- *Immutable Systems Note*: The script checks for these host binaries. If missing, install them using the system's supported layering method and reboot. For rpm-ostree systems:
   ```bash
-  rpm-ostree install krfb kscreen jq
+  rpm-ostree install krfb libkscreen jq
   sudo systemctl reboot
   ```
+  On openSUSE MicroOS, use `transactional-update pkg install krfb libkscreen jq`, then reboot.
 
 ---
 
@@ -115,7 +117,21 @@ To enable dynamic virtual resolution streaming with Moonlight:
    - **For Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **For Native**: `systemctl --user restart sunshine`
 
-The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when Sunshine stops. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, and removes only an output it created. It also restores the previous `capture` and `output_name` settings when removed.
+The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when Sunshine stops. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, and removes only an output it created. Its standalone start hook rolls back an output created during an unsuccessful startup. Removing the configuration restores the previous `capture` and `output_name` settings.
+
+The Hyprland backend must be configured from an active Hyprland session. Its configuration can be removed later from any supported desktop session; the remover detects which backend is configured.
+
+---
+
+## 🧪 Tests
+
+Run the portable test suite with Bash and `jq` installed:
+
+```bash
+bash tests/run.sh
+```
+
+The suite covers distro and desktop selection, CIDR validation, service and Error 503 helpers, and native/Flatpak Hyprland hook behavior using a stateful `hyprctl` test double. It does not replace testing capture and headless outputs in a live Hyprland session.
 
 ---
 

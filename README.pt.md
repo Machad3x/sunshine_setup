@@ -25,6 +25,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
   - Backends separados para KDE e Hyprland, selecionados conforme a sessão de desktop ativa.
   - KDE cria a tela virtual usando `krfb-virtualmonitor` e `kscreen-doctor`.
   - Hyprland cria uma saída headless com `hyprctl` somente durante a sessão do app Sunshine e a remove ao terminar a captura.
+  - Os hooks do Hyprland são scripts independentes e limpam uma saída recém-criada caso a inicialização falhe.
   - Ambos ajustam resolução e taxa de quadros conforme o cliente (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); o backend Hyprland configura a captura `wlr`.
 - **Correções e Ferramentas de Manutenção**:
   - **Correção do Erro 503**: Adiciona `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` em um arquivo dedicado; `503-reset` remove a configuração.
@@ -40,7 +41,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 | **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Pacote Nativo **ou** Flatpak |
 | **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
 
-O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial.
+O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial. O openSUSE MicroOS é reconhecido como imutável e usa Flatpak; a instalação nativa é desativada.
 
 ---
 
@@ -53,13 +54,14 @@ O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se 
 - **Ambiente de Trabalho**: KDE Plasma ou Hyprland (Wayland).
 - **Pacotes Necessários**:
   - `jq`
-- **KDE**: `krfb-virtualmonitor` (pacote `krfb`) e `kscreen-doctor` (pacote `libkscreen` / `kscreen`).
+- **KDE**: `krfb-virtualmonitor` (pacote `krfb`) e `kscreen-doctor` (pacote `libkscreen` no Fedora/Arch, `libkscreen-bin` no Debian/Ubuntu).
 - **Hyprland**: `hyprctl` (fornecido pelo Hyprland) e `flock` (pacote `util-linux`); execute a configuração dentro de uma sessão Hyprland ativa.
-- *Nota para Distros Imutáveis*: O script verifica a presença desses binários no sistema base. Caso algum esteja ausente, instale-os via `rpm-ostree` e reinicie o sistema:
+- *Nota para Distros Imutáveis*: O script verifica a presença desses binários no sistema base. Caso algum esteja ausente, instale-os pelo mecanismo de camadas da distribuição e reinicie. Em sistemas com rpm-ostree:
   ```bash
-  rpm-ostree install krfb kscreen jq
+  rpm-ostree install krfb libkscreen jq
   sudo systemctl reboot
   ```
+  No openSUSE MicroOS, use `transactional-update pkg install krfb libkscreen jq` e reinicie.
 
 ---
 
@@ -115,7 +117,21 @@ Para habilitar a troca dinâmica de resolução durante o streaming com o Moonli
    - **Para Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **Para Instalação Nativa**: `systemctl --user restart sunshine`
 
-O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao parar o Sunshine. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight e remove somente a saída criada por ele. Ao remover a configuração, também restaura os valores anteriores de `capture` e `output_name`.
+O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao parar o Sunshine. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight e remove somente a saída criada por ele. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
+
+A configuração do Hyprland deve ser feita em uma sessão Hyprland ativa. Ela pode ser removida depois a partir de qualquer desktop compatível; o removedor identifica qual backend está configurado.
+
+---
+
+## 🧪 Testes
+
+Execute a suíte portátil com Bash e `jq` instalados:
+
+```bash
+bash tests/run.sh
+```
+
+A suíte cobre seleção de distribuição e desktop, validação de CIDR, helpers do serviço e do Erro 503, e os hooks nativos/Flatpak do Hyprland com um `hyprctl` de teste com estado. Ela não substitui testes de captura e saída headless em uma sessão Hyprland real.
 
 ---
 
