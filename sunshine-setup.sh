@@ -16,7 +16,16 @@
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="2.0.2"
+SCRIPT_VERSION="2.0.3"
+TEMP_FILES=()
+
+cleanup_temp_files() {
+  local file
+  for file in "${TEMP_FILES[@]}"; do
+    [[ -e $file ]] && rm -f -- "$file" || true
+  done
+}
+trap cleanup_temp_files EXIT
 
 # ---------- colors ----------
 bold=$'\e[1m';  dim=$'\e[2m'
@@ -205,7 +214,8 @@ print_main_menu() {
   printf "  ${cyan}4${normal})  Remove Virtual Monitor\n"
   printf "  ${cyan}5${normal})  Open firewall ports\n"
   printf "  ${cyan}6${normal})  Manage Sunshine service (start/stop/restart/logs)\n"
-  printf "  ${cyan}7${normal})  Exit\n"
+  printf "  ${cyan}7${normal})  Revert Error 503 fix\n"
+  printf "  ${cyan}8${normal})  Exit\n"
   echo
   return 0
 }
@@ -222,6 +232,7 @@ usage() {
     install [--flatpak-system|--flatpak-user|--native]   Install Sunshine
     vmon                                                  Set up the virtual monitor (KDE Plasma, Wayland)
     503                                                   Fix Moonlight's "Error 503"
+    503-reset                                             Revert the Error 503 environment setting
     remove                                                Remove the virtual monitor
     firewall                                              Open Sunshine's firewall ports
     service                                               Interactive service menu
@@ -253,6 +264,8 @@ usage() {
       ships incompatible newer ABIs, and 12 is out of support.
     - Immutable systems (Silverblue, Kinoite, Bazzite, SteamOS, MicroOS, bootc, etc.)
       support Flatpak best. The native option is disabled.
+    - '503-reset' removes the Error 503 environment setting added by this script.
+    - Firewall rules can optionally be restricted to an IPv4/IPv6 CIDR.
     - Run as a normal user (sudo is requested only when needed).
 EOF
 }
@@ -279,8 +292,9 @@ print_service_status() {
 }
 
 configure_startup_dropin() {
-  local unit=$1 delay=${2:-5} dropin
+  local unit=$1 delay=${2:-5} dropin file
   dropin="$HOME/.config/systemd/user/${unit}.d"
+  file="$dropin/00-sunshine-setup.conf"
   mkdir -p "$dropin"
   {
     echo "[Unit]"
@@ -296,8 +310,8 @@ configure_startup_dropin() {
     if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
       echo "Environment=WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
     fi
-  } > "$dropin/override.conf"
-  echo "  ${dim}drop-in:${normal}  $dropin/override.conf"
+  } > "$file"
+  echo "  ${dim}drop-in:${normal}  $file"
 }
 
 repair_native_startup() {
@@ -504,20 +518,28 @@ install_deb() {
     echo "Use the Flatpak option instead." >&2
     return 1
   fi
-  local os=$1 first=$2 rel used="" seen=" " url tmp arch version
+  local os=$1 first=$2 rel used="" seen=" " url tmp arch version release_json
   local base=https://github.com/LizardByte/Sunshine/releases/latest/download
   arch=$(dpkg --print-architecture)
   command -v curl >/dev/null || pkg_install curl
   tmp=$(mktemp --suffix=.deb)
+  TEMP_FILES+=("$tmp")
   shift
 
-  # Get the latest version from the GitHub API
+  # Fetch the release once so network and parsing failures can be reported clearly.
+  if ! release_json=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest); then
+    echo "${red}Could not query the latest Sunshine release.${normal}" >&2
+    echo "Check your connection and try again, or use the Flatpak option." >&2
+    return 1
+  fi
+
   if command -v jq >/dev/null 2>&1; then
-    version=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
-      | jq -r '.tag_name // empty' | sed 's/^v//')
+    if ! version=$(printf '%s' "$release_json" | jq -er '.tag_name // empty' | sed 's/^v//'); then
+      version=""
+    fi
   else
-    version=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest \
-      | grep -oP '"tag_name"\s*:\s*"\K[^"]+' | sed 's/^v//')
+    version=$(printf '%s' "$release_json" \
+      | grep -oP '"tag_name"\s*:\s*"\K[^"]+' | sed 's/^v//' || true)
   fi
 
   if [[ -z $version ]]; then
@@ -552,11 +574,9 @@ install_deb() {
 
   apt_update_once
   sudo apt-get install -y "$tmp" || {
-    rm -f "$tmp"
     echo "${red}apt could not install the package (dependency mismatch?).${normal} Use the Flatpak option instead." >&2
     return 1
   }
-  rm -f "$tmp"
 }
 
 install_flatpak() {
@@ -767,6 +787,8 @@ setup_vmon() {
   sudo mkdir -p "$BIN_DIR"
   sudo tee "$BIN_DIR/sunshine-start-vmon" >/dev/null <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
+umask 077
 WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
 HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
 FPS="${SUNSHINE_CLIENT_FPS%.*}"
@@ -778,10 +800,111 @@ FPS_MHZ=$(( FPS * 1000 ))
 RES="${WIDTH}x${HEIGHT}"
 NAME="sunshine-vmon"
 
-VMON_PID="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u).pid"
+VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
+VMON_PID="${VMON_BASE}.pid"
+VMON_STATE_DIR="${VMON_BASE}.state"
+OUTPUTS_JSON="$VMON_STATE_DIR/outputs.json"
 VMON_MODE="${SUNSHINE_VMON_MODE:-}"
 SUNSHINE_FLATPAK_CONF="${HOME}/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
 SUNSHINE_CONF="${HOME}/.config/sunshine/sunshine.conf"
+STARTED_PID=""
+CONFIG_TMP=""
+SETUP_COMPLETE=0
+
+restore_saved_outputs() {
+  local output failed=0
+  [[ -f "$VMON_STATE_DIR/enabled-outputs" ]] || return 0
+  while IFS= read -r output; do
+    [[ -n $output ]] || continue
+    if ! kscreen-doctor "output.${output}.enable"; then
+      echo "Could not restore display output '$output'." >&2
+      failed=1
+    fi
+  done < "$VMON_STATE_DIR/enabled-outputs"
+  return "$failed"
+}
+
+restore_saved_config() {
+  local conf tmp
+  [[ -f "$VMON_STATE_DIR/config-path" && -f "$VMON_STATE_DIR/output-name.original" ]] || return 0
+  IFS= read -r conf < "$VMON_STATE_DIR/config-path" || return 1
+  case "$conf" in "$SUNSHINE_FLATPAK_CONF"|"$SUNSHINE_CONF") ;; *) return 1 ;; esac
+  [[ -f $conf ]] || return 0
+  tmp=$(mktemp "${conf}.sunshine-vmon.XXXXXX") || return 1
+  CONFIG_TMP=$tmp
+  if ! sed -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$conf" > "$tmp" \
+      || ! { if [[ -s "$VMON_STATE_DIR/output-name.original" && -s $tmp ]] \
+        && [[ $(tail -c1 "$tmp" | wc -l) -eq 0 ]]; then printf '\n' >> "$tmp"; fi; } \
+      || ! cat "$VMON_STATE_DIR/output-name.original" >> "$tmp" \
+      || ! chmod --reference="$conf" "$tmp" \
+      || ! mv "$tmp" "$conf"; then
+    rm -f -- "$tmp"
+    CONFIG_TMP=""
+    return 1
+  fi
+  CONFIG_TMP=""
+}
+
+is_vmon_process() {
+  local pid=$1 process_command=""
+  [[ $pid =~ ^[0-9]+$ && -r /proc/$pid/cmdline ]] || return 1
+  IFS= read -r -d '' process_command < "/proc/$pid/cmdline" || true
+  [[ ${process_command##*/} == krfb-virtualmonitor ]]
+}
+
+process_is_running() {
+  local pid=$1 stat_line state
+  [[ -r /proc/$pid/stat ]] || return 1
+  IFS= read -r stat_line < "/proc/$pid/stat" || return 1
+  stat_line=${stat_line##*) }
+  state=${stat_line%% *}
+  [[ -n $state && $state != Z ]]
+}
+
+remove_saved_state() {
+  rm -f -- "$VMON_STATE_DIR/enabled-outputs" \
+    "$VMON_STATE_DIR/output-name.original" \
+    "$VMON_STATE_DIR/config-path" \
+    "$VMON_STATE_DIR/outputs.json"
+  rmdir "$VMON_STATE_DIR" 2>/dev/null || true
+}
+
+cleanup_failed_start() {
+  local status=$1 failed=0
+  trap - EXIT
+  if (( ! SETUP_COMPLETE )); then
+    set +e
+    restore_saved_outputs || failed=1
+    restore_saved_config || failed=1
+    [[ -n $CONFIG_TMP ]] && rm -f -- "$CONFIG_TMP"
+    if [[ -n $STARTED_PID ]]; then
+      kill -TERM "$STARTED_PID" 2>/dev/null
+      for attempt in $(seq 1 10); do
+        process_is_running "$STARTED_PID" || break
+        sleep 0.2
+      done
+      if process_is_running "$STARTED_PID"; then
+        kill -KILL "$STARTED_PID" 2>/dev/null
+        sleep 0.2
+      fi
+      if process_is_running "$STARTED_PID"; then
+        echo "Could not terminate virtual-monitor process $STARTED_PID." >&2
+        failed=1
+      else
+        wait "$STARTED_PID" 2>/dev/null
+        rm -f -- "$VMON_PID"
+      fi
+    fi
+    rm -f -- "$OUTPUTS_JSON"
+    if (( failed )); then
+      echo "Virtual monitor rollback was incomplete; saved state remains in $VMON_STATE_DIR." >&2
+    else
+      remove_saved_state
+    fi
+  fi
+  exit "$status"
+}
+trap 'cleanup_failed_start $?' EXIT
 
 if [[ $VMON_MODE == flatpak ]]; then
   CONF="$SUNSHINE_FLATPAK_CONF"
@@ -799,65 +922,237 @@ if [[ ! -f "$CONF" ]]; then
   exit 1
 fi
 
-if [[ -f "$VMON_PID" ]] && kill -0 "$(cat "$VMON_PID")" 2>/dev/null; then
-  echo "sunshine-vmon already running (pid $(cat "$VMON_PID"))."
-  exit 0
+mkdir -p "$VMON_STATE_DIR"
+chmod 700 "$VMON_STATE_DIR"
+
+if [[ -f "$VMON_PID" ]]; then
+  existing_pid=$(cat "$VMON_PID")
+  if is_vmon_process "$existing_pid"; then
+    SETUP_COMPLETE=1
+    echo "sunshine-vmon already running (pid $existing_pid)."
+    exit 0
+  fi
+  if [[ $existing_pid =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+    echo "Ignoring stale virtual-monitor PID file that points to another process." >&2
+  fi
+  rm -f -- "$VMON_PID"
+fi
+
+if [[ -f "$VMON_STATE_DIR/enabled-outputs" || -f "$VMON_STATE_DIR/config-path" ]]; then
+  recovery_failed=0
+  restore_saved_outputs || recovery_failed=1
+  restore_saved_config || recovery_failed=1
+  if (( recovery_failed )); then
+    SETUP_COMPLETE=1
+    echo "Could not recover the previous virtual monitor state; saved state remains in $VMON_STATE_DIR." >&2
+    exit 1
+  fi
+  remove_saved_state
 fi
 
 pick_free_port() {
   local p
-  if command -v ss >/dev/null 2>&1; then
-    for p in 5905 5906 5907 5908 5909; do
-      if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ":${p}$"; then
-        echo "$p"; return 0
-      fi
-    done
+  if ! command -v ss >/dev/null 2>&1; then
+    echo "ss is unavailable; trying virtual-monitor port 5905." >&2
+    echo 5905
+    return 0
   fi
-  echo 5905
+  for p in 5905 5906 5907 5908 5909; do
+    if ! ss -H -ltn 2>/dev/null | awk -v suffix=":$p" '$4 ~ (suffix "$") { found=1 } END { exit found ? 0 : 1 }'; then
+      echo "$p"; return 0
+    fi
+  done
+  return 1
 }
-PORT=$(pick_free_port)
+if ! PORT=$(pick_free_port); then
+  echo "Could not find a free virtual-monitor port (5905-5909)." >&2
+  exit 1
+fi
 
 echo "Creating virtual display: $RES @ ${FPS}Hz"
 VNC_PASS=$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
 krfb-virtualmonitor --resolution "$RES" --name "$NAME" --password "$VNC_PASS" --port "$PORT" &
-echo $! > "$VMON_PID"
+STARTED_PID=$!
+printf '%s\n' "$STARTED_PID" > "$VMON_PID"
 
-sleep 3
+found=0
+for attempt in $(seq 1 20); do
+  if ! kill -0 "$STARTED_PID" 2>/dev/null; then
+    echo "krfb-virtualmonitor exited before creating the virtual display." >&2
+    exit 1
+  fi
+  if kscreen-doctor --json > "$OUTPUTS_JSON" 2>/dev/null \
+      && jq -e --arg v "Virtual-$NAME" '.outputs[]? | select(.name == $v)' "$OUTPUTS_JSON" >/dev/null 2>&1; then
+    found=1
+    break
+  fi
+  sleep 0.5
+done
+if (( ! found )); then
+  echo "The virtual display did not appear within 10 seconds." >&2
+  exit 1
+fi
 
 kscreen-doctor "output.Virtual-${NAME}.addCustomMode.${WIDTH}.${HEIGHT}.${FPS_MHZ}.full"
+if ! kscreen-doctor --json > "$OUTPUTS_JSON" \
+    || ! jq -e --arg v "Virtual-$NAME" \
+      '(.outputs | type == "array") and any(.outputs[]; .name == $v and .enabled == true)' \
+      "$OUTPUTS_JSON" >/dev/null; then
+  echo "Could not read the display configuration from kscreen-doctor." >&2
+  exit 1
+fi
 
-kscreen-doctor --json |
-  jq -r --arg v "Virtual-$NAME" '.outputs[] | select(.name != $v) | .name' |
-  while read -r output; do
-    kscreen-doctor "output.${output}.disable"
-    sleep 0.5
-  done
+jq -r --arg v "Virtual-$NAME" \
+  '.outputs[]? | select(.name != $v and .enabled == true) | .name' \
+  "$OUTPUTS_JSON" > "$VMON_STATE_DIR/enabled-outputs"
+printf '%s\n' "$CONF" > "$VMON_STATE_DIR/config-path"
+awk '/^[[:space:]]*output_name[[:space:]]*(=|$)/' "$CONF" \
+  > "$VMON_STATE_DIR/output-name.original"
 
-sed -i -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$CONF"
-[[ -s "$CONF" && $(tail -c1 "$CONF" | wc -l) -eq 0 ]] && echo >> "$CONF"
-printf 'output_name = Virtual-%s\n' "$NAME" >> "$CONF"
+while IFS= read -r output; do
+  [[ -n $output ]] || continue
+  kscreen-doctor "output.${output}.disable"
+  sleep 0.5
+done < "$VMON_STATE_DIR/enabled-outputs"
+
+tmp=$(mktemp "${CONF}.sunshine-vmon.XXXXXX")
+CONFIG_TMP=$tmp
+if ! sed -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$CONF" > "$tmp" \
+    || ! { if [[ -s $tmp ]] && [[ $(tail -c1 "$tmp" | wc -l) -eq 0 ]]; then printf '\n' >> "$tmp"; fi; } \
+    || ! printf 'output_name = Virtual-%s\n' "$NAME" >> "$tmp" \
+    || ! chmod --reference="$CONF" "$tmp" \
+    || ! mv "$tmp" "$CONF"; then
+  rm -f -- "$tmp"
+  CONFIG_TMP=""
+  echo "Could not set output_name in $CONF." >&2
+  exit 1
+fi
+CONFIG_TMP=""
+
+rm -f -- "$OUTPUTS_JSON"
+SETUP_COMPLETE=1
 EOF
 
   sudo tee "$BIN_DIR/sunshine-stop-vmon" >/dev/null <<'EOF'
 #!/usr/bin/env bash
-VMON_PID="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u).pid"
+set -euo pipefail
+umask 077
+VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
+VMON_PID="${VMON_BASE}.pid"
+VMON_STATE_DIR="${VMON_BASE}.state"
 SUNSHINE_FLATPAK_CONF="${HOME}/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
 SUNSHINE_CONF="${HOME}/.config/sunshine/sunshine.conf"
+CONFIG_TMP=""
 
-kscreen-doctor --json | jq -r '.outputs[].name' | while read -r output; do
-  kscreen-doctor "output.${output}.enable"
-  sleep 0.5
-done
+restore_saved_outputs() {
+  local output failed=0
+  [[ -f "$VMON_STATE_DIR/enabled-outputs" ]] || return 0
+  while IFS= read -r output; do
+    [[ -n $output ]] || continue
+    if ! kscreen-doctor "output.${output}.enable"; then
+      echo "Could not restore display output '$output'." >&2
+      failed=1
+    fi
+  done < "$VMON_STATE_DIR/enabled-outputs"
+  return "$failed"
+}
 
-if [[ -f "$VMON_PID" ]]; then
-  kill "$(cat "$VMON_PID")" 2>/dev/null || true
-  rm -f "$VMON_PID"
+restore_saved_config() {
+  local conf tmp
+  [[ -f "$VMON_STATE_DIR/config-path" && -f "$VMON_STATE_DIR/output-name.original" ]] || return 0
+  IFS= read -r conf < "$VMON_STATE_DIR/config-path" || return 1
+  case "$conf" in "$SUNSHINE_FLATPAK_CONF"|"$SUNSHINE_CONF") ;; *) return 1 ;; esac
+  [[ -f $conf ]] || return 0
+  tmp=$(mktemp "${conf}.sunshine-vmon.XXXXXX") || return 1
+  CONFIG_TMP=$tmp
+  if ! sed -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$conf" > "$tmp" \
+      || ! { if [[ -s "$VMON_STATE_DIR/output-name.original" && -s $tmp ]] \
+        && [[ $(tail -c1 "$tmp" | wc -l) -eq 0 ]]; then printf '\n' >> "$tmp"; fi; } \
+      || ! cat "$VMON_STATE_DIR/output-name.original" >> "$tmp" \
+      || ! chmod --reference="$conf" "$tmp" \
+      || ! mv "$tmp" "$conf"; then
+    rm -f -- "$tmp"
+    CONFIG_TMP=""
+    return 1
+  fi
+  CONFIG_TMP=""
+}
+
+cleanup_config_tmp() {
+  [[ -n $CONFIG_TMP ]] && rm -f -- "$CONFIG_TMP" || true
+}
+trap cleanup_config_tmp EXIT
+
+is_vmon_process() {
+  local pid=$1 process_command=""
+  [[ $pid =~ ^[0-9]+$ && -r /proc/$pid/cmdline ]] || return 1
+  IFS= read -r -d '' process_command < "/proc/$pid/cmdline" || true
+  [[ ${process_command##*/} == krfb-virtualmonitor ]]
+}
+
+remove_saved_state() {
+  rm -f -- "$VMON_STATE_DIR/enabled-outputs" \
+    "$VMON_STATE_DIR/output-name.original" \
+    "$VMON_STATE_DIR/config-path" \
+    "$VMON_STATE_DIR/outputs.json"
+  rmdir "$VMON_STATE_DIR" 2>/dev/null || true
+}
+
+failed=0
+had_state=0
+had_pid=0
+if [[ -f "$VMON_PID" ]]; then had_pid=1; fi
+if [[ -d "$VMON_STATE_DIR" ]]; then
+  had_state=1
+  restore_saved_outputs || failed=1
+  restore_saved_config || failed=1
 fi
 
-for CONF in "$SUNSHINE_FLATPAK_CONF" "$SUNSHINE_CONF"; do
-  [[ -f "$CONF" ]] && sed -i -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$CONF"
-done
-exit 0
+if [[ -f "$VMON_PID" ]]; then
+  pid=$(cat "$VMON_PID")
+  if is_vmon_process "$pid"; then
+    if ! kill "$pid" 2>/dev/null; then
+      echo "Could not stop virtual-monitor process $pid." >&2
+      failed=1
+    else
+      for attempt in $(seq 1 10); do
+        is_vmon_process "$pid" || break
+        sleep 0.2
+      done
+      if is_vmon_process "$pid"; then
+        if ! kill -KILL "$pid" 2>/dev/null; then
+          echo "Could not terminate virtual-monitor process $pid." >&2
+          failed=1
+        else
+          for attempt in $(seq 1 10); do
+            is_vmon_process "$pid" || break
+            sleep 0.2
+          done
+          if is_vmon_process "$pid"; then
+            echo "Virtual-monitor process $pid is still running after SIGKILL." >&2
+            failed=1
+          fi
+        fi
+      fi
+    fi
+  elif [[ ! $pid =~ ^[0-9]+$ ]]; then
+    echo "Ignoring invalid virtual-monitor PID file." >&2
+    failed=1
+  elif kill -0 "$pid" 2>/dev/null; then
+    echo "PID $pid does not belong to krfb-virtualmonitor; refusing to terminate it." >&2
+    failed=1
+  fi
+  if (( ! failed )); then rm -f -- "$VMON_PID"; fi
+fi
+
+if (( failed )); then
+  echo "Virtual-monitor cleanup was incomplete; saved state remains in $VMON_STATE_DIR." >&2
+  exit 1
+fi
+if (( had_state )); then remove_saved_state; fi
+if (( had_pid && !had_state )); then
+  echo "No saved display state was available; existing output states were left unchanged." >&2
+fi
 EOF
 
   sudo chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
@@ -885,6 +1180,7 @@ EOF
   mkdir -p "$(dirname "$APP_CONF")"
   [[ -f "$APP_CONF" ]] || echo '{"env":{},"apps":[]}' > "$APP_CONF"
   local TMP; TMP=$(mktemp)
+  TEMP_FILES+=("$TMP")
   if jq --arg cmd_do "$DO" --arg cmd_undo "$UNDO" '
     {
       "name": "Virtual Monitor", "cmd": "", "output": "", "image-path": "",
@@ -926,16 +1222,118 @@ fix_503() {
     ask_yes_no "Continue anyway?" || { echo "  Aborted."; return 0; }
   fi
   mkdir -p "$HOME/.config/environment.d"
-  echo "KWIN_WAYLAND_NO_PERMISSION_CHECKS=1" > "$HOME/.config/environment.d/98-kwin-no-permission-checks.conf"
-  echo "  Written to ~/.config/environment.d/98-kwin-no-permission-checks.conf:"
-  sed 's/^/    /' "$HOME/.config/environment.d/98-kwin-no-permission-checks.conf"
+  local conf="$HOME/.config/environment.d/98-sunshine-setup-503.conf"
+  local legacy_conf="$HOME/.config/environment.d/98-kwin-no-permission-checks.conf"
+  local status
+  if [[ -f $legacy_conf ]]; then
+    if contains_503_setting "$legacy_conf"; then
+      echo "  Error 503 fix is already present in $legacy_conf."
+      echo "  Use '503-reset' to remove this setting."
+      return 0
+    else
+      status=$?
+      (( status == 1 )) || return 1
+    fi
+  fi
+  if [[ -e $conf ]]; then
+    if contains_503_setting "$conf"; then
+      echo "  Error 503 fix is already present in $conf."
+    else
+      status=$?
+      if (( status != 1 )); then return 1; fi
+      echo "${red}Refusing to overwrite existing file:${normal} $conf" >&2
+      return 1
+    fi
+  else
+    printf 'KWIN_WAYLAND_NO_PERMISSION_CHECKS=1\n' > "$conf"
+    echo "  Written to $conf:"
+  fi
+  sed 's/^/    /' "$conf"
   echo "  ${yellow}Log out and back in (or reboot)${normal} for the variable to take effect in KWin."
+}
+
+contains_503_setting() {
+  local conf=$1 status
+  if grep -Fxq 'KWIN_WAYLAND_NO_PERMISSION_CHECKS=1' "$conf"; then
+    return 0
+  else
+    status=$?
+  fi
+  if (( status == 1 )); then return 1; fi
+  echo "${red}Could not read $conf.${normal}" >&2
+  return 2
+}
+
+remove_503_setting_from_file() {
+  local conf=$1 tmp status
+  [[ -f $conf ]] || return 0
+  if contains_503_setting "$conf"; then
+    :
+  else
+    status=$?
+    if (( status == 1 )); then return 0; fi
+    return 1
+  fi
+
+  tmp=$(mktemp)
+  TEMP_FILES+=("$tmp")
+  if grep -Fvx 'KWIN_WAYLAND_NO_PERMISSION_CHECKS=1' "$conf" > "$tmp"; then
+    :
+  else
+    status=$?
+    if (( status != 1 )); then
+      rm -f -- "$tmp"
+      echo "${red}Could not read $conf.${normal}" >&2
+      return 1
+    fi
+  fi
+  if [[ -s $tmp ]]; then
+    chmod --reference="$conf" "$tmp"
+    mv "$tmp" "$conf"
+  else
+    rm -f -- "$tmp" "$conf"
+  fi
+}
+
+reset_503() {
+  local conf="$HOME/.config/environment.d/98-sunshine-setup-503.conf"
+  local legacy_conf="$HOME/.config/environment.d/98-kwin-no-permission-checks.conf"
+  local found=0
+  local status
+  if [[ -f $conf ]]; then
+    if contains_503_setting "$conf"; then
+      remove_503_setting_from_file "$conf" || return 1
+      found=1
+      echo "  Removed the Error 503 setting from $conf."
+    else
+      status=$?
+      (( status == 1 )) || return 1
+    fi
+  fi
+  if [[ -f $legacy_conf ]]; then
+    if contains_503_setting "$legacy_conf"; then
+      remove_503_setting_from_file "$legacy_conf" || return 1
+      found=1
+      echo "  Removed the Error 503 setting from $legacy_conf."
+    else
+      status=$?
+      (( status == 1 )) || return 1
+    fi
+  fi
+  if (( ! found )); then
+    echo "  No Sunshine Error 503 setting to revert."
+    return 0
+  fi
+  echo "  Error 503 fix reverted. Log out and back in (or reboot) for the change to take effect."
 }
 
 # ---------- remove virtual monitor ----------
 remove_vmon() {
   if [[ -x "$BIN_DIR/sunshine-stop-vmon" ]]; then
-    "$BIN_DIR/sunshine-stop-vmon" 2>/dev/null || true
+    if ! "$BIN_DIR/sunshine-stop-vmon"; then
+      echo "${red}Could not safely restore the virtual-monitor state; leaving its configuration in place.${normal}" >&2
+      return 1
+    fi
   fi
   for m in native flatpak; do
     local conf unit
@@ -946,10 +1344,13 @@ remove_vmon() {
     fi
     if [[ -f $conf ]]; then
       local TMP; TMP=$(mktemp)
+      TEMP_FILES+=("$TMP")
       if jq '.apps |= map(select(.name != "Virtual Monitor"))' "$conf" > "$TMP"; then
         mv "$TMP" "$conf"; echo "  Entry removed from $conf"
       else
-        rm -f "$TMP"; echo "${red}Could not update $conf (invalid JSON?).${normal}" >&2
+        rm -f "$TMP"
+        echo "${red}Could not update $conf (invalid JSON?). Leaving virtual-monitor files in place.${normal}" >&2
+        return 1
       fi
     fi
     rm -f "$HOME/.config/systemd/user/${unit}.d/vmon.conf"
@@ -963,6 +1364,25 @@ remove_vmon() {
 SUNSHINE_TCP=(47984 47989 48010)
 SUNSHINE_UDP=(47998 47999 48000 48002)
 WEBUI_PORT=47990
+
+valid_cidr_syntax() {
+  local cidr=$1 address prefix octet
+  local -a octets
+  [[ $cidr =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]] || return 1
+  address=${cidr%/*}
+  prefix=${cidr#*/}
+  if [[ $address == *:* ]]; then
+    (( 10#$prefix <= 128 ))
+    return
+  fi
+  (( 10#$prefix <= 32 )) || return 1
+  IFS=. read -r -a octets <<< "$address"
+  (( ${#octets[@]} == 4 )) || return 1
+  for octet in "${octets[@]}"; do
+    [[ $octet =~ ^[0-9]{1,3}$ ]] || return 1
+    (( 10#$octet <= 255 )) || return 1
+  done
+}
 
 detect_firewall() {
   FW_BACKEND=""
@@ -1008,22 +1428,57 @@ open_firewall() {
   if ask_yes_no "Also expose the web UI port ($WEBUI_PORT) to the network? (not needed if you only use https://localhost:$WEBUI_PORT)"; then
     tcp+=("$WEBUI_PORT")
   fi
-  echo "  This will allow: TCP ${tcp[*]} | UDP ${udp[*]} 5353 (mDNS)"
-  echo "  ${yellow}These ports become reachable from your network, use it on a trusted LAN.${normal}"
+  local source_cidr=""
+  echo "  Optional: restrict access to a LAN IPv4/IPv6 CIDR (for example 192.168.1.0/24 or fd00::/64)."
+  printf "  Leave blank to allow these ports from any source: "
+  if ! read -r source_cidr; then
+    echo
+    echo "  Aborted."
+    return 1
+  fi
+  if [[ -n $source_cidr ]] && ! valid_cidr_syntax "$source_cidr"; then
+    echo "${red}Invalid CIDR syntax:${normal} $source_cidr" >&2
+    return 1
+  fi
+  if [[ -n $source_cidr ]]; then
+    echo "  This will allow: TCP ${tcp[*]} | UDP ${udp[*]} 5353 (mDNS), source $source_cidr"
+    echo "  ${yellow}Existing unrestricted firewall rules are not removed and may still allow broader access.${normal}"
+  else
+    echo "  This will allow: TCP ${tcp[*]} | UDP ${udp[*]} 5353 (mDNS), from any source"
+  fi
+  echo "  ${yellow}These ports become reachable on your network; use a trusted LAN.${normal}"
   ask_yes_no "Proceed?" || { echo "  Aborted."; return 0; }
 
-  local p
+  local p family
   if [[ $backend == firewalld ]]; then
-    for p in "${tcp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/tcp"; done
-    for p in "${udp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/udp"; done
-    sudo firewall-cmd --permanent --add-service=mdns
+    if [[ -n $source_cidr ]]; then
+      family=ipv4
+      [[ $source_cidr == *:*/* ]] && family=ipv6
+      for p in "${tcp[@]}"; do
+        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"tcp\" accept"
+      done
+      for p in "${udp[@]}"; do
+        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"udp\" accept"
+      done
+      sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"5353\" protocol=\"udp\" accept"
+    else
+      for p in "${tcp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/tcp"; done
+      for p in "${udp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/udp"; done
+      sudo firewall-cmd --permanent --add-service=mdns
+    fi
     sudo firewall-cmd --reload
-    echo "  ${dim}Current ports:${normal}"
-    sudo firewall-cmd --list-ports | sed 's/^/    /' || true
+    echo "  ${dim}Current firewall rules:${normal}"
+    sudo firewall-cmd --list-all | sed 's/^/    /' || true
   else
-    for p in "${tcp[@]}"; do sudo ufw allow "$p/tcp" comment 'Sunshine'; done
-    for p in "${udp[@]}"; do sudo ufw allow "$p/udp" comment 'Sunshine'; done
-    sudo ufw allow 5353/udp comment 'Sunshine mDNS'
+    if [[ -n $source_cidr ]]; then
+      for p in "${tcp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto tcp comment 'Sunshine'; done
+      for p in "${udp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto udp comment 'Sunshine'; done
+      sudo ufw allow from "$source_cidr" to any port 5353 proto udp comment 'Sunshine mDNS'
+    else
+      for p in "${tcp[@]}"; do sudo ufw allow "$p/tcp" comment 'Sunshine'; done
+      for p in "${udp[@]}"; do sudo ufw allow "$p/udp" comment 'Sunshine'; done
+      sudo ufw allow 5353/udp comment 'Sunshine mDNS'
+    fi
     echo "  ${dim}Current rules:${normal}"
     sudo ufw status | grep -i sunshine | sed 's/^/    /' || true
   fi
@@ -1036,6 +1491,7 @@ run_action() {
     install)  action_install "${2:-}" ;;
     vmon)     setup_vmon ;;
     503)      fix_503 ;;
+    503-reset) reset_503 ;;
     remove)   remove_vmon ;;
     firewall) open_firewall ;;
     service)  manage_service ;;
@@ -1051,7 +1507,7 @@ main_menu() {
   while true; do
     print_system_info
     print_main_menu
-    printf "  ${bold}Select [1-7]:${normal} "
+    printf "  ${bold}Select [1-8]:${normal} "
     if ! read -r choice; then echo; exit 0; fi
     echo
     case "$choice" in
@@ -1061,7 +1517,8 @@ main_menu() {
       4) run_action remove   || true ;;
       5) run_action firewall || true ;;
       6) run_action service  || true ;;
-      7|q|Q|quit|exit) exit 0 ;;
+      7) run_action 503-reset || true ;;
+      8|q|Q|quit|exit) exit 0 ;;
       "") continue ;;
       *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1; continue ;;
     esac
