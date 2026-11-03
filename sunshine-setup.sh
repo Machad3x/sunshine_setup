@@ -1366,13 +1366,52 @@ SUNSHINE_UDP=(47998 47999 48000 48002)
 WEBUI_PORT=47990
 
 valid_cidr_syntax() {
-  local cidr=$1 address prefix octet
-  local -a octets
+  local cidr=$1 address prefix octet part left right compressed=0 groups=0 ipv4=""
+  local -a octets ipv6_groups
   [[ $cidr =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]] || return 1
   address=${cidr%/*}
   prefix=${cidr#*/}
   if [[ $address == *:* ]]; then
-    (( 10#$prefix <= 128 ))
+    (( 10#$prefix <= 128 )) || return 1
+    if [[ $address == *.* ]]; then
+      [[ $address == *::* ]] && compressed=1
+      ipv4=${address##*:}
+      [[ $address == *:"$ipv4" ]] || return 1
+      address=${address%:"$ipv4"}
+      if (( compressed )) && [[ $address != *::* ]]; then address="${address}:"; fi
+      [[ $ipv4 =~ ^[0-9.]+$ ]] || return 1
+      IFS=. read -r -a octets <<< "$ipv4"
+      (( ${#octets[@]} == 4 )) || return 1
+      for octet in "${octets[@]}"; do
+        [[ $octet =~ ^[0-9]{1,3}$ ]] || return 1
+        (( 10#$octet <= 255 )) || return 1
+      done
+    fi
+    if [[ $address == *::* ]]; then
+      right=${address#*::}
+      [[ $right != *::* ]] || return 1
+      left=${address%%::*}
+      compressed=1
+    else
+      left=$address
+      right=""
+    fi
+    IFS=: read -r -a ipv6_groups <<< "$left"
+    for part in "${ipv6_groups[@]}"; do
+      [[ $part =~ ^[0-9A-Fa-f]{1,4}$ ]] || return 1
+      ((groups += 1))
+    done
+    IFS=: read -r -a ipv6_groups <<< "$right"
+    for part in "${ipv6_groups[@]}"; do
+      [[ $part =~ ^[0-9A-Fa-f]{1,4}$ ]] || return 1
+      ((groups += 1))
+    done
+    [[ -z $ipv4 ]] || ((groups += 2))
+    if (( compressed )); then
+      (( groups < 8 ))
+    else
+      (( groups == 8 ))
+    fi
     return
   fi
   (( 10#$prefix <= 32 )) || return 1
