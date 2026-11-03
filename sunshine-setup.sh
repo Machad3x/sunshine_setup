@@ -183,10 +183,10 @@ ask_yes_no() {
 source "$SCRIPT_DIR/modules/service.sh"
 # shellcheck source=modules/install.sh
 source "$SCRIPT_DIR/modules/install.sh"
-# shellcheck source=modules/virtual-monitor-add.sh
-source "$SCRIPT_DIR/modules/virtual-monitor-add.sh"
-# shellcheck source=modules/virtual-monitor-remove.sh
-source "$SCRIPT_DIR/modules/virtual-monitor-remove.sh"
+# shellcheck source=modules/vmon/kde/add.sh
+source "$SCRIPT_DIR/modules/vmon/kde/add.sh"
+# shellcheck source=modules/vmon/kde/remove.sh
+source "$SCRIPT_DIR/modules/vmon/kde/remove.sh"
 # shellcheck source=modules/fixes.sh
 source "$SCRIPT_DIR/modules/fixes.sh"
 # shellcheck source=modules/firewall.sh
