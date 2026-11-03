@@ -83,12 +83,16 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh install --flatpak-system` | Força a instalação via Flatpak (Escopo do Sistema / `--system`). |
 | `./sunshine-setup.sh install --flatpak-user` | Força a instalação via Flatpak (Escopo do Usuário / `--user`). |
 | `./sunshine-setup.sh install --native` | Força instalação nativa (Bloqueado em sistemas imutáveis). |
-| `./sunshine-setup.sh vmon` | Configura o automapamento do monitor virtual no KDE Plasma. |
-| `./sunshine-setup.sh 503` | Aplica a correção de permissão no Moonlight / KWin para o Erro 503. |
-| `./sunshine-setup.sh 503-reset` | Reverte a configuração de Erro 503 adicionada por este script. |
+| `./sunshine-setup.sh virtual-monitor` | Abre o menu do Monitor Virtual para adicionar ou remover a configuração. |
+| `./sunshine-setup.sh vmon` | Adiciona/configura diretamente a automação de monitor virtual no KDE Plasma. |
+| `./sunshine-setup.sh remove` | Remove diretamente a configuração do monitor virtual. |
+| `./sunshine-setup.sh fixes` | Abre o menu do Erro 503 para aplicar ou reverter a correção. |
+| `./sunshine-setup.sh 503` | Aplica diretamente a correção do Erro 503. |
+| `./sunshine-setup.sh 503-reset` | Reverte diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
-| `./sunshine-setup.sh remove` | Remove a configuração do monitor virtual e limpa os scripts gerados. |
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
+
+O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover) e **Correções do Erro 503** (aplicar/reverter). A implementação está separada em `modules/install.sh`, `modules/virtual-monitor-add.sh`, `modules/virtual-monitor-remove.sh`, `modules/fixes.sh`, `modules/firewall.sh` e `modules/service.sh`, carregados pelo script principal.
 
 ---
 

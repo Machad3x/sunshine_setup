@@ -1,0 +1,277 @@
+# shellcheck shell=bash
+# Shared globals are initialized by sunshine-setup.sh before this module is sourced.
+# shellcheck disable=SC2034,SC2154
+# ---------- pick which installed Sunshine to configure ----------
+pick_mode() {
+  local n=0 f=0
+  native_installed  && n=1
+  flatpak_installed && f=1
+
+  if (( IMMUTABLE )); then
+    if (( f )); then
+      MODE=flatpak
+      echo "  Immutable system detected. Using Sunshine: ${bold}flatpak${normal}"
+    else
+      echo "${red}Sunshine Flatpak is not installed.${normal} Use option 1 first." >&2
+      return 1
+    fi
+  elif (( n && f )); then
+    echo
+    echo "  ${bold}Both native and Flatpak Sunshine are installed. Which one?${normal}"
+    echo "  ${dim}(Tip: use --native or --flatpak on the command line to skip this prompt.)${normal}"
+    choose "Mode" "Native" "Flatpak" || return 1
+    case "$REPLY" in 1) MODE=native ;; 2) MODE=flatpak ;; esac
+  elif (( n )); then MODE=native
+  elif (( f )); then MODE=flatpak
+  else
+    echo "${red}Sunshine is not installed.${normal} Use option 1 first." >&2
+    return 1
+  fi
+
+  if [[ $MODE == flatpak ]]; then
+    APP_CONF="$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"
+    UNIT="$FLATPAK_UNIT"
+  else
+    APP_CONF="$HOME/.config/sunshine/apps.json"
+    UNIT="$(native_unit)"
+  fi
+}
+
+# ---------- install ----------
+# Downloads the official .deb from the latest GitHub release.
+# URL pattern: sunshine_{version}-1+{os}{rel}_{arch}.deb
+#   - Debian 13:  sunshine_{v}-1+debiantrixie_amd64.deb
+#   - Ubuntu:     sunshine_{v}-1+ubuntu24.04_amd64.deb
+# `first` is the caller's preferred release (used only for a friendly warning).
+# Remaining arguments are fallback releases, tried in order.
+install_deb() {
+  if (( IMMUTABLE )); then
+    echo "${red}Native .deb installation is not supported on immutable systems.${normal}" >&2
+    echo "Use the Flatpak option instead." >&2
+    return 1
+  fi
+  local os=$1 first=$2 rel used="" seen=" " url tmp arch version release_json
+  local base=https://github.com/LizardByte/Sunshine/releases/latest/download
+  arch=$(dpkg --print-architecture)
+  command -v curl >/dev/null || pkg_install curl
+  tmp=$(mktemp --suffix=.deb)
+  TEMP_FILES+=("$tmp")
+  shift
+
+  # Fetch the release once so network and parsing failures can be reported clearly.
+  if ! release_json=$(curl -fsSL https://api.github.com/repos/LizardByte/Sunshine/releases/latest); then
+    echo "${red}Could not query the latest Sunshine release.${normal}" >&2
+    echo "Check your connection and try again, or use the Flatpak option." >&2
+    return 1
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    if ! version=$(printf '%s' "$release_json" | jq -er '.tag_name // empty' | sed 's/^v//'); then
+      version=""
+    fi
+  else
+    version=$(printf '%s' "$release_json" \
+      | grep -oP '"tag_name"\s*:\s*"\K[^"]+' | sed 's/^v//' || true)
+  fi
+
+  if [[ -z $version ]]; then
+    rm -f "$tmp"
+    echo "${red}Could not determine the latest Sunshine version.${normal}" >&2
+    echo "Check your connection and try again, or use the Flatpak option." >&2
+    return 1
+  fi
+
+  echo "  ${dim}Latest Sunshine version:${normal} $version"
+
+  for rel in "$@"; do
+    if [[ -z $rel || $seen == *" $rel "* ]]; then continue; fi
+    seen+="$rel "
+    url="$base/sunshine_${version}-1+${os}${rel}_${arch}.deb"
+    echo "  Trying $url"
+    if curl -fsSL "$url" -o "$tmp"; then used=$rel; break; fi
+  done
+
+  if [[ -z $used ]]; then
+    rm -f "$tmp"
+    echo "${red}No matching .deb found for version $version.${normal}" >&2
+    echo "  Check https://github.com/LizardByte/Sunshine/releases or use the Flatpak option." >&2
+    return 1
+  fi
+
+  if [[ -z $first ]]; then
+    echo "  ${yellow}Could not determine your release; using the '$used' build.${normal} If dependencies fail, use the Flatpak option."
+  elif [[ $used != "$first" ]]; then
+    echo "  ${yellow}No .deb for your release; using the '$used' build.${normal} If dependencies fail, use the Flatpak option."
+  fi
+
+  apt_update_once
+  sudo apt-get install -y "$tmp" || {
+    echo "${red}apt could not install the package (dependency mismatch?).${normal} Use the Flatpak option instead." >&2
+    return 1
+  }
+}
+
+install_flatpak() {
+  local scope="${1:-system}"
+  echo "  Installing Sunshine (${bold}Flatpak — $scope${normal})..."
+
+  if (( IMMUTABLE )); then
+    if ! command -v flatpak >/dev/null 2>&1; then
+      echo "${red}Flatpak is not installed.${normal} On immutable systems, Flatpak is pre-installed; if missing, add it via 'rpm-ostree install flatpak' (requires reboot)." >&2
+      return 1
+    fi
+  else
+    command -v flatpak >/dev/null || pkg_install flatpak
+  fi
+
+  flatpak remote-add --if-not-exists --"$scope" flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  flatpak install --"$scope" -y --or-update flathub "$FLATPAK_ID"
+  flatpak run --command=additional-install.sh "$FLATPAK_ID" \
+    || echo "  ${yellow}Warning:${normal} additional-install.sh returned non-zero (udev/input rules may need manual setup)."
+
+  repair_flatpak_startup
+
+  local conf="$HOME/.var/app/$FLATPAK_ID/config/sunshine/sunshine.conf"
+  local found=0
+  for _ in $(seq 1 30); do
+    [[ -f "$conf" ]] && { found=1; break; }
+    sleep 1
+  done
+  if (( ! found )); then
+    echo "  ${yellow}Warning:${normal} Sunshine did not create its config (service may not have started — no graphical session?)."
+    mkdir -p "$(dirname "$conf")"
+    touch "$conf"
+  fi
+
+  echo
+  echo "  ${bold}Flatpak installed ($scope).${normal} Web UI: https://localhost:47990"
+  echo
+  print_service_status "$FLATPAK_UNIT" || true
+}
+
+install_native() {
+  if (( IMMUTABLE )); then
+    echo "${red}Native installation is not supported on immutable systems.${normal}" >&2
+    echo "Use Flatpak instead." >&2
+    return 1
+  fi
+
+  # Debian: only 13 (trixie) supports native .deb.
+  if [[ $DISTRO == debian ]] && ! debian_native_ok; then
+    local dver="${VERSION_ID:-unknown}"
+    echo
+    echo "  ${red}Native Sunshine is not available on Debian ${dver}.${normal}"
+    echo
+    echo "  The official .deb is built against Debian 13 (trixie)'s library ABI"
+    echo "  (libminiupnpc18, libicu76). Debian 14+ (forky) ships newer,"
+    echo "  incompatible versions, and Debian 12 and older are out of scope."
+    echo
+    echo "  ${bold}Use the Flatpak installation instead:${normal}"
+    echo "    bash $0 install --flatpak-system   # system-wide"
+    echo "    bash $0 install --flatpak-user     # per-user"
+    return 1
+  fi
+
+  echo "  Installing Sunshine (${bold}native${normal})..."
+  case $DISTRO in
+    fedora)
+      sudo dnf copr enable -y lizardbyte/stable
+      sudo dnf install -y sunshine
+      ;;
+    cachyos)
+      if ! sudo pacman -S --needed --noconfirm sunshine; then
+        echo "${red}Could not install 'sunshine' via pacman on CachyOS.${normal}" >&2
+        echo "  Check: ${bold}pacman -Ss sunshine${normal}" >&2
+        echo "  Alternatives: Flatpak or AUR (yay -S sunshine-bin)." >&2
+        return 1
+      fi
+      ;;
+    arch)
+      local helper=""
+      for h in yay paru; do command -v "$h" >/dev/null && { helper=$h; break; }; done
+      if [[ -z $helper ]]; then
+        echo "${red}No AUR helper (yay/paru) found.${normal}" >&2
+        echo "  Install yay or paru, or choose the Flatpak option." >&2
+        return 1
+      fi
+      if ! "$helper" -S --needed --noconfirm sunshine-bin; then
+        echo "${red}Failed to install sunshine-bin via $helper.${normal}" >&2
+        echo "  Try another AUR helper or choose the Flatpak option." >&2
+        return 1
+      fi
+      ;;
+    ubuntu)
+      # Same URL scheme as Debian 13, with numeric Ubuntu releases as fallbacks.
+      install_deb ubuntu "$(ubuntu_version)" 26.10 26.04 24.04 22.04
+      ;;
+    debian)
+      # Debian 13 only: upstream .deb is built against trixie's ABI.
+      install_deb debian "$DEBIAN_NATIVE_SUPPORTED_CODENAME" "$DEBIAN_NATIVE_SUPPORTED_CODENAME"
+      ;;
+  esac
+
+  flatpak_installed && systemctl --user disable --now "$FLATPAK_UNIT" 2>/dev/null || true
+
+  repair_native_startup
+
+  echo
+  echo "  ${bold}Native Sunshine installed.${normal} Web UI: https://localhost:47990"
+  echo
+  print_service_status "$(native_unit)" || true
+}
+
+action_install() {
+  case "${1:-}" in
+    --flatpak-system) install_flatpak system; return ;;
+    --flatpak-user)   install_flatpak user;   return ;;
+    --flatpak)        install_flatpak system; return ;;
+    --native)         install_native;         return ;;
+  esac
+
+  if (( IMMUTABLE )); then
+    echo
+    echo "  ${bold}Immutable system detected.${normal} Flatpak is recommended."
+    choose "Flatpak scope" "System (--system)" "User (--user)" "Back" || return 0
+    case "$REPLY" in
+      1) install_flatpak system ;;
+      2) install_flatpak user   ;;
+      3) return 0               ;;
+    esac
+    return
+  fi
+
+  # Debian other than 13 → Flatpak only.
+  if [[ $DISTRO == debian ]] && ! debian_native_ok; then
+    echo
+    echo "  ${yellow}Native Sunshine is not available on Debian ${VERSION_ID:-unknown}.${normal}"
+    echo "  Only Flatpak is supported on this Debian version."
+    echo "  ${dim}(See https://github.com/LizardByte/Sunshine for the upstream build matrix.)${normal}"
+    echo
+    choose "Method" "Flatpak (System scope)" "Flatpak (User scope)" "Back" || return 1
+    case "$REPLY" in
+      1) install_flatpak system ;;
+      2) install_flatpak user   ;;
+      3) return 0               ;;
+    esac
+    return
+  fi
+
+  local source_name
+  case $DISTRO in
+    fedora)        source_name=COPR ;;
+    arch)          source_name="AUR (yay/paru)" ;;
+    cachyos)       source_name="pacman (CachyOS)" ;;
+    ubuntu)        source_name=".deb" ;;
+    debian)        source_name=".deb (Debian 13 trixie)" ;;
+  esac
+
+  echo
+  echo "  ${bold}How do you want to install Sunshine?${normal}"
+  choose "Method" "Flatpak (System scope)" "Flatpak (User scope)" "Native ($source_name)" "Back" || return 1
+  case "$REPLY" in
+    1) install_flatpak system ;;
+    2) install_flatpak user   ;;
+    3) install_native         ;;
+    4) return 0               ;;
+  esac
+}
