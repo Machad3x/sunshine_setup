@@ -39,6 +39,8 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 | **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Pacote Nativo **ou** Flatpak |
 | **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
 
+O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial.
+
 ---
 
 ## 🛠️ Pré-requisitos do Sistema

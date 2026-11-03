@@ -51,28 +51,32 @@ DEBIAN_NATIVE_SUPPORTED_CODENAME="trixie"
 
 [[ $EUID -eq 0 ]] && { echo "Do not run this script as root." >&2; exit 1; }
 
+# ---------- shared helpers ----------
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=modules/common.sh
+source "$SCRIPT_DIR/modules/common.sh"
+
 # ---------- distro detection ----------
 . /etc/os-release
-case " ${ID:-} ${ID_LIKE:-} " in
-  *" cachyos "*) DISTRO=cachyos ;;
-  *" fedora "*)  DISTRO=fedora ;;
-  *" arch "*)    DISTRO=arch ;;
-  *" ubuntu "*)  DISTRO=ubuntu ;;
-  *" debian "*)  DISTRO=debian ;;
-  *) echo "${red}Unsupported distro (${ID:-?}). Only Fedora, Arch, CachyOS, Ubuntu and Debian (and derivatives).${normal}" >&2; exit 1 ;;
-esac
+if ! detect_distro "${ID:-}" "${ID_LIKE:-}"; then
+  echo "${red}Unsupported distro (${ID:-?}${ID_LIKE:+; based on $ID_LIKE}). Only Fedora, Arch, CachyOS, Ubuntu and Debian (and derivatives).${normal}" >&2
+  exit 1
+fi
 
 # ---------- immutable detection ----------
 is_immutable() {
+  local id=${ID:-} variant=${VARIANT_ID:-}
+  id=${id,,}
+  variant=${variant,,}
   [[ -e /run/ostree-booted ]] && return 0
   command -v rpm-ostree >/dev/null 2>&1 && rpm-ostree status >/dev/null 2>&1 && return 0
   command -v bootc >/dev/null 2>&1 && bootc status >/dev/null 2>&1 && return 0
   command -v transactional-update >/dev/null 2>&1 && return 0
-  [[ "${ID:-}" == steamos ]] || [[ "${VARIANT_ID:-}" == steamos ]] && return 0
-  case "${VARIANT_ID:-}" in
+  [[ $id == steamos || $variant == steamos ]] && return 0
+  case $variant in
     silverblue|kinoite|sericea|onyx|bazzite|bluefin|aurora|ucore|steamos|steamdeck|holoiso) return 0 ;;
   esac
-  case "${ID:-}" in
+  case $id in
     bazzite|steamos|steamdeck|holoiso|silverblue|kinoite|sericea|onyx|bluefin|aurora|ucore) return 0 ;;
   esac
   return 1
@@ -175,9 +179,6 @@ ask_yes_no() {
 }
 
 # ---------- module loading ----------
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=modules/common.sh
-source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=modules/service.sh
 source "$SCRIPT_DIR/modules/service.sh"
 # shellcheck source=modules/install.sh

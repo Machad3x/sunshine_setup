@@ -39,6 +39,8 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 | **Traditional Systems** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Native Package **or** Flatpak |
 | **Immutable / Atomic** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Flatpak Only** (`--system` / `--user`) |
 
+The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, then checks `ID_LIKE` from left to right and uses the first supported family. Unknown IDs are not matched by substring.
+
 ---
 
 ## 🛠️ System Requirements

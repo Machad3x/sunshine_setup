@@ -1,6 +1,32 @@
 # shellcheck shell=bash
 # Shared globals are initialized by sunshine-setup.sh before this module is sourced.
 # shellcheck disable=SC2034,SC2154
+detect_distro() {
+  local id=${1:-} like=${2:-} family
+  local -a like_ids
+
+  id=${id,,}
+  like=${like,,}
+  DISTRO=""
+  case $id in
+    cachyos|fedora|arch|ubuntu|debian)
+      DISTRO=$id
+      return 0
+      ;;
+  esac
+
+  read -r -a like_ids <<< "$like"
+  for family in "${like_ids[@]}"; do
+    case $family in
+      cachyos|fedora|arch|ubuntu|debian)
+        DISTRO=$family
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
 pick_mode() {
   local n=0 f=0
   native_installed  && n=1
