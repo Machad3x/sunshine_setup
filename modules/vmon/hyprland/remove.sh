@@ -3,7 +3,7 @@
 # shellcheck disable=SC2154
 
 remove_vmon_hyprland() {
-  local state_dir app_conf tmp start_script stop_script refs=0
+  local state_dir app_conf tmp start_script stop_script runtime_state refs=0
   state_dir=$(hypr_vmon_state_dir)
   for app_conf in "$HOME/.config/sunshine/apps.json" \
                   "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
@@ -34,8 +34,12 @@ remove_vmon_hyprland() {
     echo "  Hyprland app entry removed from $app_conf"
   done
 
-  if [[ -f ${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)/references ]]; then
-    IFS= read -r refs < "${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)/references" || true
+  runtime_state="${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)"
+  if [[ -f $runtime_state/state ]]; then
+    IFS= read -r refs < "$runtime_state/state" || true
+    [[ $refs =~ ^[0-9]+$ ]] || refs=1
+  elif [[ -f $runtime_state/references ]]; then
+    IFS= read -r refs < "$runtime_state/references" || true
     [[ $refs =~ ^[0-9]+$ ]] || refs=1
   fi
   if (( refs > 0 )); then

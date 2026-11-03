@@ -15,9 +15,27 @@ setup_vmon_kde() {
       if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "${red}'$cmd' not found.${normal}" >&2
         case $cmd in
-          krfb-virtualmonitor) echo "  Install via 'rpm-ostree install krfb' (requires reboot)." >&2 ;;
-          kscreen-doctor)      echo "  Install via 'rpm-ostree install kscreen' (requires reboot)." >&2 ;;
-          jq)                  echo "  Install via 'rpm-ostree install jq' (requires reboot)." >&2 ;;
+          krfb-virtualmonitor)
+            if [[ $DISTRO == opensuse-microos ]]; then
+              echo "  Install via 'transactional-update pkg install krfb' (requires reboot)." >&2
+            else
+              echo "  Install via 'rpm-ostree install krfb' (requires reboot)." >&2
+            fi
+            ;;
+          kscreen-doctor)
+            if [[ $DISTRO == opensuse-microos ]]; then
+              echo "  Install via 'transactional-update pkg install libkscreen' (requires reboot)." >&2
+            else
+              echo "  Install via 'rpm-ostree install libkscreen' (requires reboot)." >&2
+            fi
+            ;;
+          jq)
+            if [[ $DISTRO == opensuse-microos ]]; then
+              echo "  Install via 'transactional-update pkg install jq' (requires reboot)." >&2
+            else
+              echo "  Install via 'rpm-ostree install jq' (requires reboot)." >&2
+            fi
+            ;;
         esac
         missing=1
       fi
@@ -25,12 +43,12 @@ setup_vmon_kde() {
     (( missing )) && return 1
   else
     case $DISTRO in
-      fedora)        pkg_install krfb jq ;;
-      arch|cachyos)  pkg_install krfb jq libkscreen ;;
-      ubuntu|debian)
-        for p in krfb jq kscreen; do
-          pkg_install "$p" 2>/dev/null || echo "  ${yellow}Warning:${normal} could not install '$p'."
-        done
+      fedora)        pkg_install krfb jq libkscreen || return 1 ;;
+      arch|cachyos)  pkg_install krfb jq libkscreen || return 1 ;;
+      ubuntu|debian) pkg_install krfb jq libkscreen-bin || return 1 ;;
+      *)
+        echo "${red}No supported package mapping is available for '$DISTRO'.${normal}" >&2
+        return 1
         ;;
     esac
     command -v kscreen-doctor >/dev/null || {
@@ -107,13 +125,12 @@ set -euo pipefail
 umask 077
 WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
 HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
-FPS="${SUNSHINE_CLIENT_FPS:-}"
+FPS="${SUNSHINE_CLIENT_FPS:-60}"
 FPS="${FPS%.*}"
-FPS="${FPS:-60}"
-[[ $WIDTH  =~ ^[0-9]+$ ]] || WIDTH=1920
-[[ $HEIGHT =~ ^[0-9]+$ ]] || HEIGHT=1080
-[[ $FPS    =~ ^[0-9]+$ ]] || FPS=60
-FPS_MHZ=$(( FPS * 1000 ))
+[[ $WIDTH =~ ^[1-9][0-9]{0,4}$ ]] && (( WIDTH <= 16384 )) || WIDTH=1920
+[[ $HEIGHT =~ ^[1-9][0-9]{0,4}$ ]] && (( HEIGHT <= 16384 )) || HEIGHT=1080
+[[ $FPS =~ ^[1-9][0-9]{0,3}$ ]] && (( FPS <= 1000 )) || FPS=60
+FPS_MHZ=$(( 10#$FPS * 1000 ))
 RES="${WIDTH}x${HEIGHT}"
 NAME="sunshine-vmon"
 
@@ -370,23 +387,38 @@ EOF
   sudo chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
   command -v restorecon >/dev/null && sudo restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
 
-  local DO UNDO RT
+  local DO UNDO env_name env_value quoted start_script_q stop_script_q flatpak_env_args
   if [[ $MODE == flatpak ]]; then
     local uid; uid=$(id -u)
     local wl_display="${WAYLAND_DISPLAY:-}"
     if [[ -z $wl_display ]]; then
-      wl_display=$(ls "/run/user/$uid"/wayland-* 2>/dev/null | head -1)
-      wl_display="${wl_display##*/}"
+      local wl_socket
+      wl_socket=$(find "/run/user/$uid" -maxdepth 1 -type s -name 'wayland-*' -print -quit 2>/dev/null || true)
+      wl_display="${wl_socket##*/}"
     fi
     wl_display="${wl_display:-wayland-0}"
     local xdg_rt="${XDG_RUNTIME_DIR:-/run/user/$uid}"
     local dbus_a="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$uid/bus}"
-    RT="QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY=$wl_display XDG_RUNTIME_DIR=$xdg_rt DBUS_SESSION_BUS_ADDRESS=$dbus_a"
-    DO="sh -c \"flatpak-spawn --host --env=SUNSHINE_CLIENT_WIDTH=\$SUNSHINE_CLIENT_WIDTH --env=SUNSHINE_CLIENT_HEIGHT=\$SUNSHINE_CLIENT_HEIGHT --env=SUNSHINE_CLIENT_FPS=\$SUNSHINE_CLIENT_FPS --env=SUNSHINE_VMON_MODE=flatpak --env=${RT// / --env=} $BIN_DIR/sunshine-start-vmon\""
-    UNDO="flatpak-spawn --host env $RT $BIN_DIR/sunshine-stop-vmon"
+    flatpak_env_args=""
+    for env_name in QT_QPA_PLATFORM WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+      case $env_name in
+        QT_QPA_PLATFORM) env_value=wayland ;;
+        WAYLAND_DISPLAY) env_value=$wl_display ;;
+        XDG_RUNTIME_DIR) env_value=$xdg_rt ;;
+        DBUS_SESSION_BUS_ADDRESS) env_value=$dbus_a ;;
+      esac
+      printf -v quoted '%q' "--env=$env_name=$env_value"
+      flatpak_env_args+=" $quoted"
+    done
+    printf -v start_script_q '%q' "$BIN_DIR/sunshine-start-vmon"
+    printf -v stop_script_q '%q' "$BIN_DIR/sunshine-stop-vmon"
+    DO="flatpak-spawn --host$flatpak_env_args --env=SUNSHINE_CLIENT_WIDTH=\$SUNSHINE_CLIENT_WIDTH --env=SUNSHINE_CLIENT_HEIGHT=\$SUNSHINE_CLIENT_HEIGHT --env=SUNSHINE_CLIENT_FPS=\$SUNSHINE_CLIENT_FPS --env=SUNSHINE_VMON_MODE=flatpak $start_script_q"
+    UNDO="flatpak-spawn --host$flatpak_env_args env $stop_script_q"
   else
-    DO="env SUNSHINE_VMON_MODE=native $BIN_DIR/sunshine-start-vmon"
-    UNDO="$BIN_DIR/sunshine-stop-vmon"
+    printf -v start_script_q '%q' "$BIN_DIR/sunshine-start-vmon"
+    printf -v stop_script_q '%q' "$BIN_DIR/sunshine-stop-vmon"
+    DO="env SUNSHINE_VMON_MODE=native $start_script_q"
+    UNDO="$stop_script_q"
   fi
 
   mkdir -p "$(dirname "$APP_CONF")"

@@ -17,10 +17,15 @@ remove_vmon_kde() {
       conf="$HOME/.config/sunshine/apps.json"; unit="$(native_unit)"
     fi
     if [[ -f $conf ]]; then
-      local TMP; TMP=$(mktemp)
+      local TMP; TMP=$(mktemp "${conf}.sunshine-vmon.XXXXXX") || return 1
       TEMP_FILES+=("$TMP")
       if jq '.apps |= map(select(.name != "Virtual Monitor"))' "$conf" > "$TMP"; then
-        mv "$TMP" "$conf"; echo "  Entry removed from $conf"
+        if ! chmod --reference="$conf" "$TMP" || ! mv -f -- "$TMP" "$conf"; then
+          rm -f -- "$TMP"
+          echo "${red}Could not replace $conf. Leaving virtual-monitor files in place.${normal}" >&2
+          return 1
+        fi
+        echo "  Entry removed from $conf"
       else
         rm -f "$TMP"
         echo "${red}Could not update $conf (invalid JSON?). Leaving virtual-monitor files in place.${normal}" >&2
