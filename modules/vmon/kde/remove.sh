@@ -2,7 +2,7 @@
 # Shared globals are initialized by sunshine-setup.sh before this module is sourced.
 # shellcheck disable=SC2154
 # ---------- remove virtual monitor ----------
-remove_vmon() {
+remove_vmon_kde() {
   if [[ -x "$BIN_DIR/sunshine-stop-vmon" ]]; then
     if ! "$BIN_DIR/sunshine-stop-vmon"; then
       echo "${red}Could not safely restore the virtual-monitor state; leaving its configuration in place.${normal}" >&2

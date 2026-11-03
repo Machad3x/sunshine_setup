@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sunshine setup for Fedora, Arch, CachyOS, Ubuntu and Debian
-# (KDE Plasma, Wayland for the virtual monitor).
+# (KDE Plasma or Hyprland, Wayland for the virtual monitor).
 # Ported from the Bazzite "setup-sunshine" ujust recipe and its virtual monitor scripts.
 #
 # Distro notes:
@@ -132,7 +132,7 @@ is_vmon_configured() {
   local conf
   for conf in "$HOME/.config/sunshine/apps.json" \
               "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
-    if [[ -f $conf ]] && jq -e '.apps[]? | select(.name == "Virtual Monitor")' "$conf" &>/dev/null; then
+    if [[ -f $conf ]] && jq -e '.apps[]? | select(.name == "Virtual Monitor" or .name == "Virtual Monitor (Hyprland)")' "$conf" &>/dev/null; then
       return 0
     fi
   done
@@ -187,6 +187,14 @@ source "$SCRIPT_DIR/modules/install.sh"
 source "$SCRIPT_DIR/modules/vmon/kde/add.sh"
 # shellcheck source=modules/vmon/kde/remove.sh
 source "$SCRIPT_DIR/modules/vmon/kde/remove.sh"
+# shellcheck source=modules/vmon/hyprland/common.sh
+source "$SCRIPT_DIR/modules/vmon/hyprland/common.sh"
+# shellcheck source=modules/vmon/hyprland/add.sh
+source "$SCRIPT_DIR/modules/vmon/hyprland/add.sh"
+# shellcheck source=modules/vmon/hyprland/remove.sh
+source "$SCRIPT_DIR/modules/vmon/hyprland/remove.sh"
+# shellcheck source=modules/vmon/dispatch.sh
+source "$SCRIPT_DIR/modules/vmon/dispatch.sh"
 # shellcheck source=modules/fixes.sh
 source "$SCRIPT_DIR/modules/fixes.sh"
 # shellcheck source=modules/firewall.sh
@@ -230,7 +238,7 @@ usage() {
   ${bold}Commands:${normal}
     install [--flatpak-system|--flatpak-user|--native]   Install Sunshine
     virtual-monitor                                      Open virtual monitor menu
-    vmon                                                  Add/configure virtual monitor
+    vmon                                                  Add/configure monitor for KDE Plasma or Hyprland
     remove                                                Remove virtual monitor
     fixes                                                 Open Error 503 fixes menu
     503                                                   Apply the Error 503 fix

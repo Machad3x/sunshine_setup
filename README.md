@@ -2,7 +2,7 @@
 
 # Sunshine Setup Script
 
-Automated installation and configuration script for [Sunshine](https://github.com/LizardByte/Sunshine) (self-hosted game stream host) and virtual monitor setup tailored for KDE Plasma (Wayland).
+Automated installation and configuration script for [Sunshine](https://github.com/LizardByte/Sunshine) (self-hosted game stream host) and virtual monitor setup for KDE Plasma and Hyprland (Wayland).
 
 Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual monitor automation scripts.
 
@@ -22,9 +22,10 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 - **Flexible Flatpak Installation**:
   - Supports installing Sunshine via Flatpak with custom scope selection: `--system` (global) or `--user` (per-user).
 - **Virtual Monitor Integration**:
-  - Automated virtual display provisioning for KDE Plasma (Wayland) using `krfb-virtualmonitor` and `kscreen-doctor`.
-  - Configures dynamic display resolution and frame-rate matching (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS).
-  - Saves the previously enabled displays and the original Sunshine `output_name`; restores them on stop and rolls back failed startup.
+  - Separate KDE and Hyprland backends, selected from the active desktop session.
+  - KDE provisions its display using `krfb-virtualmonitor` and `kscreen-doctor`.
+  - Hyprland creates a headless output with `hyprctl` only for the Sunshine app session, then removes it after capture ends.
+  - Both backends match the client resolution and frame rate (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); the Hyprland backend configures Sunshine for `wlr` capture.
 - **Troubleshooting & Utility Actions**:
   - **Error 503 Fix**: Adds `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` in a dedicated environment file; `503-reset` removes the setting.
   - **Firewall Setup**: Automatically detects `firewalld` or `ufw` and opens necessary network ports for streaming and mDNS discovery, optionally restricted to an IPv4/IPv6 CIDR.
@@ -49,11 +50,11 @@ The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, t
 - **Standard User**: Run the script as a regular non-root user (avoid `sudo bash ...`). The script prompts for elevated privileges (`sudo`) only when strictly required.
 
 ### Virtual Monitor Requirements (Option 2)
-- **Desktop Environment**: **KDE Plasma 6 (Wayland)**.
+- **Desktop Environment**: KDE Plasma (Wayland) or Hyprland (Wayland).
 - **Required Packages**:
-  - `krfb-virtualmonitor` (provided by `krfb`)
-  - `kscreen-doctor` (provided by `libkscreen` / `kscreen`)
   - `jq`
+- **KDE**: `krfb-virtualmonitor` (provided by `krfb`) and `kscreen-doctor` (provided by `libkscreen` / `kscreen`).
+- **Hyprland**: `hyprctl` (provided by Hyprland) and `flock` (provided by `util-linux`); run setup from an active Hyprland session.
 - *Immutable Systems Note*: The script checks for these host binaries. If missing, install them via OSTree layering and reboot:
   ```bash
   rpm-ostree install krfb kscreen jq
@@ -86,7 +87,7 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh install --flatpak-user` | Force Flatpak installation (Per-user / `--user`). |
 | `./sunshine-setup.sh install --native` | Force native package installation (Blocked on immutable systems). |
 | `./sunshine-setup.sh virtual-monitor` | Open the Virtual Monitor menu to add or remove its configuration. |
-| `./sunshine-setup.sh vmon` | Add/configure KDE Plasma virtual monitor automation directly. |
+| `./sunshine-setup.sh vmon` | Add/configure the virtual monitor for the active KDE Plasma or Hyprland session. |
 | `./sunshine-setup.sh remove` | Remove the virtual monitor configuration directly. |
 | `./sunshine-setup.sh fixes` | Open the Error 503 menu to apply or revert the fix. |
 | `./sunshine-setup.sh 503` | Apply the Error 503 fix directly. |
@@ -94,7 +95,7 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh firewall` | Configure firewall rules for `firewalld` or `ufw`. |
 | `./sunshine-setup.sh --help` | Display script usage notes and options. |
 
-The interactive menu groups related actions under **Virtual Monitor** (add/remove) and **Error 503 Fixes** (apply/revert). Feature implementations and shared mode selection are split into the files under `modules/`, which are loaded by the main script.
+The interactive menu groups related actions under **Virtual Monitor** (add/remove) and **Error 503 Fixes** (apply/revert). Virtual-monitor backends are organized under `modules/vmon/kde/` and `modules/vmon/hyprland/`; the shared dispatcher is `modules/vmon/dispatch.sh`.
 
 ---
 
@@ -102,18 +103,19 @@ The interactive menu groups related actions under **Virtual Monitor** (add/remov
 
 To enable dynamic virtual resolution streaming with Moonlight:
 
-1. Execute the virtual monitor setup:
+1. Run the setup from the desktop session you want to use:
    ```bash
    ./sunshine-setup.sh vmon
    ```
 2. Open the Sunshine Web UI in your browser: `https://localhost:47990`
 3. Navigate to **Configuration > Audio/Video**.
-4. Set **Capture Method** to **`KWin Screencast`**.
+4. For **KDE Plasma**, set **Capture Method** to **`KWin Screencast`**.
+   For **Hyprland**, setup selects **`wlr`** capture and configures a headless output created when the Sunshine app starts.
 5. Save changes and restart the Sunshine service:
    - **For Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **For Native**: `systemctl --user restart sunshine`
 
-The script remembers which physical displays were enabled before the virtual display started and restores those displays and the previous `output_name` setting when Sunshine stops. If startup fails, it attempts the same rollback.
+The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when Sunshine stops. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, and removes only an output it created. It also restores the previous `capture` and `output_name` settings when removed.
 
 ---
 

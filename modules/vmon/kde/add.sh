@@ -2,7 +2,7 @@
 # Shared globals are initialized by sunshine-setup.sh before this module is sourced.
 # shellcheck disable=SC2154
 # ---------- virtual monitor ----------
-setup_vmon() {
+setup_vmon_kde() {
   if [[ "${XDG_CURRENT_DESKTOP:-}" != *KDE* ]]; then
     echo "  ${yellow}Warning:${normal} the virtual monitor only works on KDE Plasma (KWin, Wayland)."
     echo "  Current desktop: ${XDG_CURRENT_DESKTOP:-unknown}."
