@@ -61,7 +61,7 @@ remove_503_setting_from_file() {
     return 1
   fi
 
-  tmp=$(mktemp)
+  tmp=$(mktemp "${conf}.sunshine-setup.XXXXXX") || return 1
   TEMP_FILES+=("$tmp")
   if grep -Fvx 'KWIN_WAYLAND_NO_PERMISSION_CHECKS=1' "$conf" > "$tmp"; then
     :
@@ -74,8 +74,11 @@ remove_503_setting_from_file() {
     fi
   fi
   if [[ -s $tmp ]]; then
-    chmod --reference="$conf" "$tmp"
-    mv "$tmp" "$conf"
+    if ! chmod --reference="$conf" "$tmp" || ! mv -f -- "$tmp" "$conf"; then
+      rm -f -- "$tmp"
+      echo "${red}Could not update $conf.${normal}" >&2
+      return 1
+    fi
   else
     rm -f -- "$tmp" "$conf"
   fi

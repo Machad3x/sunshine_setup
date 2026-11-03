@@ -17,8 +17,8 @@ install_deb() {
   local os=$1 first=$2 rel used="" seen=" " url tmp arch version release_json
   local base=https://github.com/LizardByte/Sunshine/releases/latest/download
   arch=$(dpkg --print-architecture)
-  command -v curl >/dev/null || pkg_install curl
-  tmp=$(mktemp --suffix=.deb)
+  command -v curl >/dev/null || pkg_install curl || return 1
+  tmp=$(mktemp --suffix=.deb) || return 1
   TEMP_FILES+=("$tmp")
   shift
 
@@ -77,6 +77,13 @@ install_deb() {
 
 install_flatpak() {
   local scope="${1:-system}"
+  case $scope in
+    system|user) ;;
+    *)
+      echo "${red}Invalid Flatpak installation scope: $scope${normal}" >&2
+      return 2
+      ;;
+  esac
   echo "  Installing Sunshine (${bold}Flatpak — $scope${normal})..."
 
   if (( IMMUTABLE )); then
@@ -85,12 +92,12 @@ install_flatpak() {
       return 1
     fi
   else
-    command -v flatpak >/dev/null || pkg_install flatpak
+    command -v flatpak >/dev/null || pkg_install flatpak || return 1
   fi
 
-  flatpak remote-add --if-not-exists --"$scope" flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-  flatpak install --"$scope" -y --or-update flathub "$FLATPAK_ID"
-  flatpak run --command=additional-install.sh "$FLATPAK_ID" \
+  flatpak remote-add --if-not-exists --"$scope" flathub https://dl.flathub.org/repo/flathub.flatpakrepo || return 1
+  flatpak install --"$scope" -y --or-update flathub "$FLATPAK_ID" || return 1
+  flatpak run --"$scope" --command=additional-install.sh "$FLATPAK_ID" \
     || echo "  ${yellow}Warning:${normal} additional-install.sh returned non-zero (udev/input rules may need manual setup)."
 
   repair_flatpak_startup

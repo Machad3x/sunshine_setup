@@ -16,7 +16,7 @@
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="2.0.3"
+SCRIPT_VERSION="2.0.4"
 TEMP_FILES=()
 
 cleanup_temp_files() {
@@ -59,7 +59,7 @@ source "$SCRIPT_DIR/modules/common.sh"
 # ---------- distro detection ----------
 . /etc/os-release
 if ! detect_distro "${ID:-}" "${ID_LIKE:-}"; then
-  echo "${red}Unsupported distro (${ID:-?}${ID_LIKE:+; based on $ID_LIKE}). Only Fedora, Arch, CachyOS, Ubuntu and Debian (and derivatives).${normal}" >&2
+  echo "${red}Unsupported distro (${ID:-?}${ID_LIKE:+; based on $ID_LIKE}). Supported: Fedora, Arch, CachyOS, Ubuntu, Debian, and immutable openSUSE MicroOS.${normal}" >&2
   exit 1
 fi
 
@@ -68,6 +68,7 @@ is_immutable() {
   local id=${ID:-} variant=${VARIANT_ID:-}
   id=${id,,}
   variant=${variant,,}
+  [[ $DISTRO == opensuse-microos ]] && return 0
   [[ -e /run/ostree-booted ]] && return 0
   command -v rpm-ostree >/dev/null 2>&1 && rpm-ostree status >/dev/null 2>&1 && return 0
   command -v bootc >/dev/null 2>&1 && bootc status >/dev/null 2>&1 && return 0
@@ -93,27 +94,42 @@ debian_native_ok() {
 
 # ---------- helpers ----------
 apt_update_once() {
-  [[ -n ${APT_UPDATED:-} ]] && return
-  command -v apt-get >/dev/null || return 0
-  sudo apt-get update -qq
+  [[ -n ${APT_UPDATED:-} ]] && return 0
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "${red}apt-get was not found on this Debian/Ubuntu system.${normal}" >&2
+    return 1
+  fi
+  sudo apt-get update -qq || return 1
   APT_UPDATED=1
 }
 
 pkg_install() {
   if (( IMMUTABLE )); then
     echo "${red}Package installation is not supported on immutable systems.${normal}" >&2
-    echo "Use Flatpak or install packages via 'rpm-ostree install <package>' (requires reboot)." >&2
+    if [[ $DISTRO == opensuse-microos ]]; then
+      echo "Use Flatpak or install packages via 'transactional-update pkg install <package>' (requires reboot)." >&2
+    else
+      echo "Use Flatpak or install packages via 'rpm-ostree install <package>' (requires reboot)." >&2
+    fi
     return 1
   fi
   case $DISTRO in
     fedora)        sudo dnf install -y "$@" ;;
     arch|cachyos)  sudo pacman -S --needed --noconfirm "$@" ;;
-    ubuntu|debian) apt_update_once; sudo apt-get install -y "$@" ;;
+    ubuntu|debian) apt_update_once || return 1; sudo apt-get install -y "$@" ;;
+    *)
+      echo "${red}No supported package manager is configured for '$DISTRO'.${normal}" >&2
+      return 1
+      ;;
   esac
 }
 
 native_installed()  { command -v sunshine >/dev/null 2>&1; }
-flatpak_installed() { command -v flatpak >/dev/null 2>&1 && flatpak info "$FLATPAK_ID" >/dev/null 2>&1; }
+flatpak_installed() {
+  command -v flatpak >/dev/null 2>&1 \
+    && { flatpak info --user "$FLATPAK_ID" >/dev/null 2>&1 \
+      || flatpak info --system "$FLATPAK_ID" >/dev/null 2>&1; }
+}
 
 # Returns the actual systemd user unit name for a native Sunshine install.
 native_unit() {

@@ -9,7 +9,7 @@ detect_distro() {
   like=${like,,}
   DISTRO=""
   case $id in
-    cachyos|fedora|arch|ubuntu|debian)
+    cachyos|fedora|arch|ubuntu|debian|opensuse-microos)
       DISTRO=$id
       return 0
       ;;
@@ -43,7 +43,6 @@ pick_mode() {
   elif (( n && f )); then
     echo
     echo "  ${bold}Both native and Flatpak Sunshine are installed. Which one?${normal}"
-    echo "  ${dim}(Tip: use --native or --flatpak on the command line to skip this prompt.)${normal}"
     choose "Mode" "Native" "Flatpak" || return 1
     case "$REPLY" in 1) MODE=native ;; 2) MODE=flatpak ;; esac
   elif (( n )); then MODE=native

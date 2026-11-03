@@ -23,25 +23,26 @@ print_service_status() {
 }
 
 configure_startup_dropin() {
-  local unit=$1 delay=${2:-5} dropin file
+  local unit=$1 delay=${2:-5} dropin file tmp
   dropin="$HOME/.config/systemd/user/${unit}.d"
   file="$dropin/00-sunshine-setup.conf"
-  mkdir -p "$dropin"
-  {
-    echo "[Unit]"
-    echo "After=graphical-session.target"
-    echo "Wants=graphical-session.target"
-    echo
-    echo "[Service]"
+  mkdir -p "$dropin" || return 1
+  tmp=$(mktemp "$dropin/.00-sunshine-setup.XXXXXX") || return 1
+  if ! {
+    printf '[Unit]\nAfter=graphical-session.target\nWants=graphical-session.target\n\n[Service]\n'
     if [[ -n $delay && $delay != 0 ]]; then
-      echo "ExecStartPre=/bin/sleep $delay"
+      printf 'ExecStartPre=/bin/sleep %s\n' "$delay"
     fi
-    echo "Environment=XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP:-KDE}"
-    echo "Environment=XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-wayland}"
+    printf 'Environment=XDG_CURRENT_DESKTOP=%s\n' "${XDG_CURRENT_DESKTOP:-KDE}"
+    printf 'Environment=XDG_SESSION_TYPE=%s\n' "${XDG_SESSION_TYPE:-wayland}"
     if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
-      echo "Environment=WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+      printf 'Environment=WAYLAND_DISPLAY=%s\n' "$WAYLAND_DISPLAY"
     fi
-  } > "$file"
+  } > "$tmp" || ! mv -f -- "$tmp" "$file"; then
+    rm -f -- "$tmp"
+    echo "${red}Could not write the systemd user drop-in $file.${normal}" >&2
+    return 1
+  fi
   echo "  ${dim}drop-in:${normal}  $file"
 }
 
@@ -52,7 +53,11 @@ repair_native_startup() {
   fi
 
   local bin unit
-  bin=$(readlink -f "$(command -v sunshine)")
+  bin=$(readlink -f "$(command -v sunshine)") || return 1
+  [[ -n $bin && -x $bin ]] || {
+    echo "${red}Could not resolve the native Sunshine executable.${normal}" >&2
+    return 1
+  }
 
   if command -v setcap >/dev/null 2>&1; then
     sudo setcap cap_sys_admin+p "$bin" 2>/dev/null \
@@ -63,7 +68,7 @@ repair_native_startup() {
   fi
 
   unit=$(native_unit)
-  configure_startup_dropin "$unit" 5
+  configure_startup_dropin "$unit" 5 || return 1
 
   systemctl --user disable --now sunshine.service 2>/dev/null || true
   systemctl --user daemon-reload
@@ -81,7 +86,7 @@ repair_flatpak_startup() {
     return 1
   fi
 
-  configure_startup_dropin "$FLATPAK_UNIT" 0
+  configure_startup_dropin "$FLATPAK_UNIT" 0 || return 1
 
   systemctl --user disable --now sunshine.service 2>/dev/null || true
   systemctl --user daemon-reload
@@ -98,6 +103,11 @@ repair_startup() {
   case $scope in
     --native)  repair_native_startup;  return ;;
     --flatpak) repair_flatpak_startup; return ;;
+    "") ;;
+    *)
+      echo "Unknown Sunshine installation scope: $scope" >&2
+      return 2
+      ;;
   esac
   if native_installed && flatpak_installed; then
     pick_mode || return 1
@@ -139,14 +149,53 @@ service_action() {
       ;;
   esac
   case $action in
-    start)   systemctl --user start   "$unit" && echo "  ${green}Started${normal} $unit"   || { echo "  ${red}Failed to start $unit${normal}" >&2;   return 1; } ;;
-    stop)    systemctl --user stop    "$unit" && echo "  ${green}Stopped${normal} $unit"   || { echo "  ${red}Failed to stop $unit${normal}" >&2;    return 1; } ;;
-    restart) systemctl --user restart "$unit" && echo "  ${green}Restarted${normal} $unit" || { echo "  ${red}Failed to restart $unit${normal}" >&2; return 1; } ;;
-    enable)  systemctl --user enable  "$unit" && echo "  ${green}Enabled${normal} $unit (auto-start at login)" || { echo "  ${red}Failed to enable${normal}" >&2; return 1; } ;;
-    disable) systemctl --user disable "$unit" && echo "  ${green}Disabled${normal} $unit" || { echo "  ${red}Failed to disable${normal}" >&2; return 1; } ;;
+    start)
+      if systemctl --user start "$unit"; then
+        echo "  ${green}Started${normal} $unit"
+      else
+        echo "  ${red}Failed to start $unit${normal}" >&2
+        return 1
+      fi
+      ;;
+    stop)
+      if systemctl --user stop "$unit"; then
+        echo "  ${green}Stopped${normal} $unit"
+      else
+        echo "  ${red}Failed to stop $unit${normal}" >&2
+        return 1
+      fi
+      ;;
+    restart)
+      if systemctl --user restart "$unit"; then
+        echo "  ${green}Restarted${normal} $unit"
+      else
+        echo "  ${red}Failed to restart $unit${normal}" >&2
+        return 1
+      fi
+      ;;
+    enable)
+      if systemctl --user enable "$unit"; then
+        echo "  ${green}Enabled${normal} $unit (auto-start at login)"
+      else
+        echo "  ${red}Failed to enable $unit${normal}" >&2
+        return 1
+      fi
+      ;;
+    disable)
+      if systemctl --user disable "$unit"; then
+        echo "  ${green}Disabled${normal} $unit"
+      else
+        echo "  ${red}Failed to disable $unit${normal}" >&2
+        return 1
+      fi
+      ;;
     status)  systemctl --user status "$unit" --no-pager || true ;;
     logs)    journalctl --user -u "$unit" -n 50 --no-pager || true ;;
     follow)  journalctl --user -u "$unit" -n 50 -f ;;
+    *)
+      echo "Unknown Sunshine service action: $action" >&2
+      return 2
+      ;;
   esac
 }
 
