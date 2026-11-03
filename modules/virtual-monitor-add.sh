@@ -42,31 +42,14 @@ setup_vmon() {
   fi
 
   sudo mkdir -p "$BIN_DIR"
-  sudo tee "$BIN_DIR/sunshine-start-vmon" >/dev/null <<'EOF'
+  sudo tee "$BIN_DIR/sunshine-vmon-common.sh" >/dev/null <<'EOF'
 #!/usr/bin/env bash
-set -euo pipefail
-umask 077
-WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
-HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
-FPS="${SUNSHINE_CLIENT_FPS%.*}"
-FPS="${FPS:-60}"
-[[ $WIDTH  =~ ^[0-9]+$ ]] || WIDTH=1920
-[[ $HEIGHT =~ ^[0-9]+$ ]] || HEIGHT=1080
-[[ $FPS    =~ ^[0-9]+$ ]] || FPS=60
-FPS_MHZ=$(( FPS * 1000 ))
-RES="${WIDTH}x${HEIGHT}"
-NAME="sunshine-vmon"
-
 VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
 VMON_PID="${VMON_BASE}.pid"
 VMON_STATE_DIR="${VMON_BASE}.state"
-OUTPUTS_JSON="$VMON_STATE_DIR/outputs.json"
-VMON_MODE="${SUNSHINE_VMON_MODE:-}"
 SUNSHINE_FLATPAK_CONF="${HOME}/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
 SUNSHINE_CONF="${HOME}/.config/sunshine/sunshine.conf"
-STARTED_PID=""
 CONFIG_TMP=""
-SETUP_COMPLETE=0
 
 restore_saved_outputs() {
   local output failed=0
@@ -109,6 +92,37 @@ is_vmon_process() {
   [[ ${process_command##*/} == krfb-virtualmonitor ]]
 }
 
+remove_saved_state() {
+  rm -f -- "$VMON_STATE_DIR/enabled-outputs" \
+    "$VMON_STATE_DIR/output-name.original" \
+    "$VMON_STATE_DIR/config-path" \
+    "$VMON_STATE_DIR/outputs.json"
+  rmdir "$VMON_STATE_DIR" 2>/dev/null || true
+}
+EOF
+
+  sudo tee "$BIN_DIR/sunshine-start-vmon" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
+HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
+FPS="${SUNSHINE_CLIENT_FPS%.*}"
+FPS="${FPS:-60}"
+[[ $WIDTH  =~ ^[0-9]+$ ]] || WIDTH=1920
+[[ $HEIGHT =~ ^[0-9]+$ ]] || HEIGHT=1080
+[[ $FPS    =~ ^[0-9]+$ ]] || FPS=60
+FPS_MHZ=$(( FPS * 1000 ))
+RES="${WIDTH}x${HEIGHT}"
+NAME="sunshine-vmon"
+
+COMMON="${BASH_SOURCE[0]%/*}/sunshine-vmon-common.sh"
+source "$COMMON"
+OUTPUTS_JSON="$VMON_STATE_DIR/outputs.json"
+VMON_MODE="${SUNSHINE_VMON_MODE:-}"
+STARTED_PID=""
+SETUP_COMPLETE=0
+
 process_is_running() {
   local pid=$1 stat_line state
   [[ -r /proc/$pid/stat ]] || return 1
@@ -116,14 +130,6 @@ process_is_running() {
   stat_line=${stat_line##*) }
   state=${stat_line%% *}
   [[ -n $state && $state != Z ]]
-}
-
-remove_saved_state() {
-  rm -f -- "$VMON_STATE_DIR/enabled-outputs" \
-    "$VMON_STATE_DIR/output-name.original" \
-    "$VMON_STATE_DIR/config-path" \
-    "$VMON_STATE_DIR/outputs.json"
-  rmdir "$VMON_STATE_DIR" 2>/dev/null || true
 }
 
 cleanup_failed_start() {
@@ -294,66 +300,13 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
-VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
-VMON_PID="${VMON_BASE}.pid"
-VMON_STATE_DIR="${VMON_BASE}.state"
-SUNSHINE_FLATPAK_CONF="${HOME}/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
-SUNSHINE_CONF="${HOME}/.config/sunshine/sunshine.conf"
-CONFIG_TMP=""
-
-restore_saved_outputs() {
-  local output failed=0
-  [[ -f "$VMON_STATE_DIR/enabled-outputs" ]] || return 0
-  while IFS= read -r output; do
-    [[ -n $output ]] || continue
-    if ! kscreen-doctor "output.${output}.enable"; then
-      echo "Could not restore display output '$output'." >&2
-      failed=1
-    fi
-  done < "$VMON_STATE_DIR/enabled-outputs"
-  return "$failed"
-}
-
-restore_saved_config() {
-  local conf tmp
-  [[ -f "$VMON_STATE_DIR/config-path" && -f "$VMON_STATE_DIR/output-name.original" ]] || return 0
-  IFS= read -r conf < "$VMON_STATE_DIR/config-path" || return 1
-  case "$conf" in "$SUNSHINE_FLATPAK_CONF"|"$SUNSHINE_CONF") ;; *) return 1 ;; esac
-  [[ -f $conf ]] || return 0
-  tmp=$(mktemp "${conf}.sunshine-vmon.XXXXXX") || return 1
-  CONFIG_TMP=$tmp
-  if ! sed -E '/^[[:space:]]*output_name[[:space:]]*(=|$)/d' "$conf" > "$tmp" \
-      || ! { if [[ -s "$VMON_STATE_DIR/output-name.original" && -s $tmp ]] \
-        && [[ $(tail -c1 "$tmp" | wc -l) -eq 0 ]]; then printf '\n' >> "$tmp"; fi; } \
-      || ! cat "$VMON_STATE_DIR/output-name.original" >> "$tmp" \
-      || ! chmod --reference="$conf" "$tmp" \
-      || ! mv "$tmp" "$conf"; then
-    rm -f -- "$tmp"
-    CONFIG_TMP=""
-    return 1
-  fi
-  CONFIG_TMP=""
-}
+COMMON="${BASH_SOURCE[0]%/*}/sunshine-vmon-common.sh"
+source "$COMMON"
 
 cleanup_config_tmp() {
   [[ -n $CONFIG_TMP ]] && rm -f -- "$CONFIG_TMP" || true
 }
 trap cleanup_config_tmp EXIT
-
-is_vmon_process() {
-  local pid=$1 process_command=""
-  [[ $pid =~ ^[0-9]+$ && -r /proc/$pid/cmdline ]] || return 1
-  IFS= read -r -d '' process_command < "/proc/$pid/cmdline" || true
-  [[ ${process_command##*/} == krfb-virtualmonitor ]]
-}
-
-remove_saved_state() {
-  rm -f -- "$VMON_STATE_DIR/enabled-outputs" \
-    "$VMON_STATE_DIR/output-name.original" \
-    "$VMON_STATE_DIR/config-path" \
-    "$VMON_STATE_DIR/outputs.json"
-  rmdir "$VMON_STATE_DIR" 2>/dev/null || true
-}
 
 failed=0
 had_state=0
@@ -412,8 +365,9 @@ if (( had_pid && !had_state )); then
 fi
 EOF
 
+  sudo chmod 644 "$BIN_DIR/sunshine-vmon-common.sh"
   sudo chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
-  command -v restorecon >/dev/null && sudo restorecon "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
+  command -v restorecon >/dev/null && sudo restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
 
   local DO UNDO RT
   if [[ $MODE == flatpak ]]; then

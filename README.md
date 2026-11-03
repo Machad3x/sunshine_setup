@@ -92,7 +92,7 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh firewall` | Configure firewall rules for `firewalld` or `ufw`. |
 | `./sunshine-setup.sh --help` | Display script usage notes and options. |
 
-The interactive menu groups related actions under **Virtual Monitor** (add/remove) and **Error 503 Fixes** (apply/revert). The implementation is split into `modules/install.sh`, `modules/virtual-monitor-add.sh`, `modules/virtual-monitor-remove.sh`, `modules/fixes.sh`, `modules/firewall.sh`, and `modules/service.sh`; the main script loads these modules.
+The interactive menu groups related actions under **Virtual Monitor** (add/remove) and **Error 503 Fixes** (apply/revert). Feature implementations and shared mode selection are split into the files under `modules/`, which are loaded by the main script.
 
 ---
 

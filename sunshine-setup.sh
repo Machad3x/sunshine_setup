@@ -176,6 +176,8 @@ ask_yes_no() {
 
 # ---------- module loading ----------
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=modules/common.sh
+source "$SCRIPT_DIR/modules/common.sh"
 # shellcheck source=modules/service.sh
 source "$SCRIPT_DIR/modules/service.sh"
 # shellcheck source=modules/install.sh

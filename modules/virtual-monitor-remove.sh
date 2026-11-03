@@ -2,7 +2,6 @@
 # Shared globals are initialized by sunshine-setup.sh before this module is sourced.
 # shellcheck disable=SC2154
 # ---------- remove virtual monitor ----------
-# ---------- remove virtual monitor ----------
 remove_vmon() {
   if [[ -x "$BIN_DIR/sunshine-stop-vmon" ]]; then
     if ! "$BIN_DIR/sunshine-stop-vmon"; then
@@ -31,6 +30,6 @@ remove_vmon() {
     rm -f "$HOME/.config/systemd/user/${unit}.d/vmon.conf"
   done
   systemctl --user daemon-reload
-  sudo rm -f "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
+  sudo rm -f -- "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
   echo "  Virtual monitor removed. (The Error 503 fix was left untouched.)"
 }

@@ -154,6 +154,8 @@ manage_service() {
   pick_mode || return 1
   local unit
   if [[ $MODE == flatpak ]]; then unit=$FLATPAK_UNIT; else unit=$(native_unit); fi
+  local scope=--native
+  [[ $MODE == flatpak ]] && scope=--flatpak
 
   local back_num=9
   [[ $MODE == native ]] && back_num=10
@@ -186,14 +188,14 @@ manage_service() {
     fi
     if (( choice == back_num )); then return 0; fi
     case "$choice" in
-      1) systemctl --user start   "$unit" && echo "  ${green}Started${normal}"   || echo "  ${red}Failed to start${normal}" ;;
-      2) systemctl --user stop    "$unit" && echo "  ${green}Stopped${normal}"   || echo "  ${red}Failed to stop${normal}" ;;
-      3) systemctl --user restart "$unit" && echo "  ${green}Restarted${normal}" || echo "  ${red}Failed to restart${normal}" ;;
-      4) systemctl --user enable  "$unit" && echo "  ${green}Enabled${normal}"   || echo "  ${red}Failed to enable${normal}" ;;
-      5) systemctl --user disable "$unit" && echo "  ${green}Disabled${normal}"  || echo "  ${red}Failed to disable${normal}" ;;
-      6) systemctl --user status "$unit" --no-pager || true ;;
-      7) journalctl --user -u "$unit" -n 50 --no-pager || true ;;
-      8) journalctl --user -u "$unit" -n 50 -f ;;
+      1) service_action start "$scope" || true ;;
+      2) service_action stop "$scope" || true ;;
+      3) service_action restart "$scope" || true ;;
+      4) service_action enable "$scope" || true ;;
+      5) service_action disable "$scope" || true ;;
+      6) service_action status "$scope" || true ;;
+      7) service_action logs "$scope" || true ;;
+      8) service_action follow "$scope" || true ;;
       9) if [[ $MODE == native ]]; then repair_native_startup; fi ;;
       *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1 ;;
     esac

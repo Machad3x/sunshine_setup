@@ -92,7 +92,7 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
 
-O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover) e **Correções do Erro 503** (aplicar/reverter). A implementação está separada em `modules/install.sh`, `modules/virtual-monitor-add.sh`, `modules/virtual-monitor-remove.sh`, `modules/fixes.sh`, `modules/firewall.sh` e `modules/service.sh`, carregados pelo script principal.
+O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover) e **Correções do Erro 503** (aplicar/reverter). As funções e a seleção compartilhada do modo do Sunshine estão separadas nos arquivos dentro de `modules/`, carregados pelo script principal.
 
 ---
 
