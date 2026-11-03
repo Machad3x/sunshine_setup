@@ -107,7 +107,8 @@ set -euo pipefail
 umask 077
 WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
 HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
-FPS="${SUNSHINE_CLIENT_FPS%.*}"
+FPS="${SUNSHINE_CLIENT_FPS:-}"
+FPS="${FPS%.*}"
 FPS="${FPS:-60}"
 [[ $WIDTH  =~ ^[0-9]+$ ]] || WIDTH=1920
 [[ $HEIGHT =~ ^[0-9]+$ ]] || HEIGHT=1080
