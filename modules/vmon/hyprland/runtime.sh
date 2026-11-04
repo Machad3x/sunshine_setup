@@ -58,6 +58,21 @@ hypr_vmon_wait_for_output_disabled() {
   return 1
 }
 
+hypr_vmon_wait_for_output_active() {
+  local name=$1 attempt status
+  for ((attempt = 0; attempt < 20; attempt++)); do
+    if hypr_vmon_output_is_active "$name"; then
+      return 0
+    else
+      status=$?
+    fi
+    (( status == 1 )) && sleep 0.1 && continue
+    return 1
+  done
+  echo "Hyprland did not restore the physical output $name." >&2
+  return 1
+}
+
 hypr_vmon_apply_physical_monitors() {
   local action=$1 state_file=$2 monitor name mode position scale transform failed=0 result
   local -a monitors fields
@@ -105,7 +120,12 @@ hypr_vmon_apply_physical_monitors() {
     if ! hyprctl keyword monitor "$name,$mode,$position,$scale,$transform" >/dev/null; then
       echo "Could not restore the Hyprland output $name." >&2
       failed=1
+      continue
     fi
+    hypr_vmon_wait_for_output_active "$name" || {
+      echo "Could not restore the Hyprland output $name." >&2
+      failed=1
+    }
   done
   (( failed == 0 ))
 }

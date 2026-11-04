@@ -63,12 +63,17 @@ case ${1:-} in
       height=${resolution#*x}
       x=${position%x*}
       y=${position#*x}
-      jq --arg name "$monitor_name" --argjson width "$width" --argjson height "$height" \
-        --argjson refresh "$refresh" --argjson x "$x" --argjson y "$y" \
-        --argjson scale "$scale" --argjson transform "$transform" \
-        'map(select(.name != $name)) + [{name:$name,description:($name + " Physical Monitor"),width:$width,height:$height,refreshRate:$refresh,x:$x,y:$y,scale:$scale,transform:$transform}]' \
-        "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
-      mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+      if [[ $monitor_name == "${HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME:-}" ]]; then
+        jq --arg name "$monitor_name" 'map(select(.name != $name))' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+      else
+        jq --arg name "$monitor_name" --argjson width "$width" --argjson height "$height" \
+          --argjson refresh "$refresh" --argjson x "$x" --argjson y "$y" \
+          --argjson scale "$scale" --argjson transform "$transform" \
+          'map(select(.name != $name)) + [{name:$name,description:($name + " Physical Monitor"),width:$width,height:$height,refreshRate:$refresh,x:$x,y:$y,scale:$scale,transform:$transform}]' \
+          "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+      fi
     fi
     printf 'ok\n'
     ;;
@@ -150,6 +155,22 @@ grep -q 'keyword monitor HDMI-A-1,1920x1080@60,2560x0,1,0' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not restored" >&2; exit 1; }
 printf '[]\n' > "$HYPR_MOCK_STATE"
 echo "PASS Hyprland physical output suspend and restore"
+
+printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"Dell Inc. Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
+  > "$HYPR_MOCK_STATE"
+HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME=HDMI-A-1 "$START" >/dev/null
+if HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME=HDMI-A-1 "$STOP" >/dev/null 2>&1; then
+  echo "Monitor restoration failure was ignored" >&2
+  exit 1
+fi
+jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == "DP-1") and all(.[]; .name != "HDMI-A-1")' \
+  "$HYPR_MOCK_STATE" >/dev/null || { echo "Failed restore left the physical monitor state inconsistent" >&2; exit 1; }
+[[ -e $STATE_DIR/state && -e $STATE_DIR/physical-monitors.json ]] \
+  || { echo "Failed restore did not leave state intact for recovery" >&2; exit 1; }
+rm -f -- "$STATE_DIR/state" "$STATE_DIR/physical-monitors.json" "$STATE_DIR/references" "$STATE_DIR/owned"
+rmdir "$STATE_DIR" 2>/dev/null || true
+printf '[]\n' > "$HYPR_MOCK_STATE"
+echo "PASS Hyprland physical-output restore verification"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
