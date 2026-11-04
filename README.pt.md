@@ -27,7 +27,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
   - Hyprland cria uma saída headless com `hyprctl` somente durante a sessão do app Sunshine e a remove ao terminar a captura.
   - Durante a captura, Hyprland desativa temporariamente as telas físicas, confirma que ficaram inativas e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão.
   - Os hooks do Hyprland são scripts independentes e limpam uma saída recém-criada caso a inicialização falhe.
-  - Ambos ajustam resolução e taxa de quadros conforme o cliente (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); o backend Hyprland configura a captura `wlr`.
+  - Ambos ajustam resolução e taxa de quadros conforme o cliente (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS) quando o app de monitor virtual do Sunshine é iniciado; o backend Hyprland configura a captura `wlr`.
 - **Correções e Ferramentas de Manutenção**:
   - **Correção do Erro 503**: Adiciona `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` em um arquivo dedicado; `503-reset` remove a configuração.
   - **Configuração de Firewall**: Detecta `firewalld` ou `ufw` e libera as portas necessárias para streaming e mDNS, com opção de restringir a um CIDR IPv4/IPv6.
@@ -39,10 +39,11 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 
 | Tipo de Distribuição | Distribuições / Sistemas Suportados | Método de Instalação Permitido |
 | :--- | :--- | :--- |
-| **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian | Pacote Nativo **ou** Flatpak |
+| **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian 13 (trixie) | Pacote Nativo **ou** Flatpak |
+| **Somente Flatpak** | Debian 12 e anteriores, e Debian 14+ | Flatpak (`--system` / `--user`) |
 | **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
 
-O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial. O openSUSE MicroOS é reconhecido como imutável e usa Flatpak; a instalação nativa é desativada.
+O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial. Somente o Debian 13 (trixie) permite instalação nativa; as outras versões do Debian usam Flatpak. O estado imutável é detectado pelo ID da distribuição e pelas ferramentas do sistema; a instalação nativa é desativada em sistemas imutáveis detectados.
 
 ---
 
@@ -57,12 +58,12 @@ O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se 
   - `jq`
 - **KDE**: `krfb-virtualmonitor` (pacote `krfb`) e `kscreen-doctor` (pacote `libkscreen` no Fedora/Arch, `libkscreen-bin` no Debian/Ubuntu).
 - **Hyprland**: `hyprctl` (fornecido pelo Hyprland) e `flock` (pacote `util-linux`); execute a configuração dentro de uma sessão Hyprland ativa.
-- *Nota para Distros Imutáveis*: O script verifica a presença desses binários no sistema base. Caso algum esteja ausente, instale-os pelo mecanismo de camadas da distribuição e reinicie. Em sistemas com rpm-ostree:
+- *Nota para Distros Imutáveis*: As ferramentas do monitor virtual precisam estar disponíveis no host. Para KDE, instale `krfb`, `libkscreen` e `jq`; para Hyprland, instale `jq` (`hyprctl` vem com o Hyprland e `flock` com `util-linux`). Em sistemas com rpm-ostree:
   ```bash
   rpm-ostree install krfb libkscreen jq
   sudo systemctl reboot
   ```
-  No openSUSE MicroOS, use `transactional-update pkg install krfb libkscreen jq` e reinicie.
+  Para Hyprland em sistemas rpm-ostree, use `rpm-ostree install jq util-linux`. No openSUSE MicroOS, use `transactional-update pkg install krfb libkscreen jq` para KDE ou `transactional-update pkg install jq util-linux` para Hyprland e reinicie.
 
 ---
 
@@ -96,7 +97,11 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh 503` | Aplica diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh 503-reset` | Reverte diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
+| `./sunshine-setup.sh service` | Abre o menu de controle do serviço Sunshine. |
+| `./sunshine-setup.sh start|stop|restart|enable|disable|status|logs|follow [--native|--flatpak]` | Controla ou consulta o serviço de usuário do Sunshine. |
+| `./sunshine-setup.sh repair [--native|--flatpak]` | Repara a configuração de inicialização do serviço Sunshine. |
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
+| `./sunshine-setup.sh --version` | Exibe a versão do script. |
 
 O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover) e **Correções do Erro 503** (aplicar/reverter). Os backends do monitor virtual ficam organizados em `modules/vmon/kde/` e `modules/vmon/hyprland/`; o dispatcher compartilhado está em `modules/vmon/dispatch.sh`.
 
@@ -114,11 +119,12 @@ Para habilitar a troca dinâmica de resolução durante o streaming com o Moonli
 3. Navegue até **Configuration > Audio/Video**.
 4. No **KDE Plasma**, defina **Capture Method** como **`KWin Screencast`**.
    No **Hyprland**, a configuração seleciona **`wlr`** e cria a saída headless quando o app Sunshine inicia.
-5. Salve as alterações e reinicie o serviço do Sunshine:
+5. Salve as alterações e reinicie o serviço Sunshine para recarregar a configuração:
    - **Para Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
-   - **Para Instalação Nativa**: `systemctl --user restart sunshine`
+   - **Para instalação nativa**: `./sunshine-setup.sh restart --native`
+6. No Moonlight, inicie o app Sunshine **Virtual Monitor** (KDE) ou **Virtual Monitor (Hyprland)**. Os hooks do monitor são executados para esse app; iniciar outro app Sunshine não os executa.
 
-O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao parar o Sunshine. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight, desativa temporariamente as telas físicas, confirma que cada uma ficou inativa antes de continuar a captura e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão. Ele remove somente a saída criada por si. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
+O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao encerrar a sessão do app de monitor virtual. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight, desativa temporariamente as telas físicas, confirma que cada uma ficou inativa antes de continuar a captura e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão. Ele remove somente a saída criada por si. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
 
 A configuração do Hyprland deve ser feita em uma sessão Hyprland ativa. Ela pode ser removida depois a partir de qualquer desktop compatível; o removedor identifica qual backend está configurado.
 

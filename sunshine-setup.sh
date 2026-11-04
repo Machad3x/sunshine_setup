@@ -9,14 +9,14 @@
 #   - CachyOS:   native via pacman (repo package 'sunshine')
 #   - Ubuntu:    native via upstream .deb (best-effort, falls back to Flatpak)
 #   - Debian 13 (trixie):  native via upstream .deb
-#   - Debian 12 or 14+:    Flatpak only (native .deb deps are incompatible)
+#   - Debian 12 and older or 14+: Flatpak only (native .deb deps are incompatible)
 #   - Immutable systems:   Flatpak only.
 #
 # Interactive:  bash sunshine-setup.sh
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="2.0.4"
+SCRIPT_VERSION="3.0.0"
 TEMP_FILES=()
 
 cleanup_temp_files() {
@@ -277,7 +277,7 @@ usage() {
     - Arch uses yay or paru for AUR (sunshine-bin).
     - CachyOS uses pacman (repo package 'sunshine').
     - Ubuntu uses the upstream .deb (best effort; Flatpak as fallback).
-    - Debian 13 (trixie): native via upstream .deb; Debian 12 and 14+: Flatpak only.
+    - Debian 13 (trixie): native via upstream .deb; Debian 12 and older or 14+: Flatpak only.
     - Immutable systems support Flatpak best; native package installation is disabled.
     - Firewall rules can optionally be restricted to an IPv4/IPv6 CIDR.
     - Run as a normal user (sudo is requested only when needed).
