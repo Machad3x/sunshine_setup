@@ -159,6 +159,10 @@ grep -Fxq "run --user --command=additional-install.sh $FLATPAK_ID" "$INSTALL_LOG
   || fail "Flatpak additional installer did not use the requested user scope"
 echo "PASS Flatpak installation scope"
 
+DISTRO=opensuse-microos
+if install_native >/dev/null 2>&1; then fail "native installation claimed success on a distro without a native method"; fi
+DISTRO=debian
+
 printf '{"apps":[{"name":"Virtual Monitor"},{"name":"Virtual Monitor (Hyprland)"}]}\n' \
   > "$HOME/.config/sunshine/apps.json"
 hypr_vmon_state_dir() { printf '%s\n' "$HOME/.config/sunshine-setup/hyprland-vmon"; }

@@ -204,6 +204,11 @@ install_native() {
       # Debian 13 only: upstream .deb is built against trixie's ABI.
       install_deb debian "$DEBIAN_NATIVE_SUPPORTED_CODENAME" "$DEBIAN_NATIVE_SUPPORTED_CODENAME"
       ;;
+    *)
+      echo "${red}No native installation method is configured for '$DISTRO'.${normal}" >&2
+      echo "  Choose the Flatpak option instead." >&2
+      return 1
+      ;;
   esac
 
   flatpak_installed && systemctl --user disable --now "$FLATPAK_UNIT" 2>/dev/null || true
@@ -281,6 +286,7 @@ action_install() {
     cachyos)       source_name="pacman (CachyOS)" ;;
     ubuntu)        source_name=".deb" ;;
     debian)        source_name=".deb (Debian 13 trixie)" ;;
+    *)             source_name="native packages" ;;
   esac
 
   echo
