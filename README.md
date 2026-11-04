@@ -6,6 +6,8 @@ Automated installation and configuration script for [Sunshine](https://github.co
 
 Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual monitor automation scripts.
 
+[Changelog](./CHANGELOG.md)
+
 ---
 
 ## 🚀 Features

@@ -277,9 +277,10 @@ fi
 kscreen-doctor "output.Virtual-${NAME}.addCustomMode.${WIDTH}.${HEIGHT}.${FPS_MHZ}.full"
 if ! kscreen-doctor --json > "$OUTPUTS_JSON" \
     || ! jq -e --arg v "Virtual-$NAME" \
-      '(.outputs | type == "array") and any(.outputs[]; .name == $v and .enabled == true)' \
+      '(.outputs | type == "array") and any(.outputs[];
+        .name == $v and (.enabled == true or (.enabled == null and .connected == true)))' \
       "$OUTPUTS_JSON" >/dev/null; then
-  echo "Could not read the display configuration from kscreen-doctor." >&2
+  echo "Virtual display Virtual-$NAME is missing or not connected in kscreen-doctor output." >&2
   exit 1
 fi
 

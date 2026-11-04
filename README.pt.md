@@ -6,6 +6,8 @@ Script automatizado de instalação e configuração do [Sunshine](https://githu
 
 Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automação de monitor virtual do projeto **Bazzite**.
 
+[Changelog](./CHANGELOG.md)
+
 ---
 
 ## 🚀 Funcionalidades
