@@ -32,7 +32,19 @@ pick_mode() {
   native_installed  && n=1
   flatpak_installed && f=1
 
-  if (( IMMUTABLE )); then
+  if (( ${UNSUPPORTED_DISTRO:-0} )); then
+    # Native installation is blocked on unsupported distributions, so prefer
+    # the Flatpak build when it is available.
+    if (( f )); then
+      MODE=flatpak
+      echo "  Unsupported distribution detected. Using Sunshine: ${bold}flatpak${normal}"
+    elif (( n )); then
+      MODE=native
+    else
+      echo "${red}Sunshine is not installed.${normal} Use option 1 to install the Flatpak build." >&2
+      return 1
+    fi
+  elif (( IMMUTABLE )); then
     if (( f )); then
       MODE=flatpak
       echo "  Immutable system detected. Using Sunshine: ${bold}flatpak${normal}"

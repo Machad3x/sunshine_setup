@@ -2,61 +2,69 @@
 # Shared globals are initialized by sunshine-setup.sh before this module is sourced.
 # shellcheck disable=SC2154
 # ---------- virtual monitor ----------
+vmon_kde_require_tools() {
+  local cmd pkg missing=0
+  for cmd in krfb-virtualmonitor kscreen-doctor jq; do
+    command -v "$cmd" >/dev/null 2>&1 && continue
+    missing=1
+    case $cmd in
+      krfb-virtualmonitor)
+        echo "${red}krfb-virtualmonitor not found.${normal} It is provided by the 'krfb' package." >&2
+        pkg=krfb
+        ;;
+      kscreen-doctor)
+        echo "${red}kscreen-doctor not found.${normal} It ships with KDE's kscreen/libkscreen package; is Plasma installed?" >&2
+        pkg=libkscreen
+        ;;
+      jq)
+        echo "${red}jq not found.${normal} Install 'jq' with your package manager." >&2
+        pkg=jq
+        ;;
+    esac
+    if (( IMMUTABLE )); then
+      if [[ $DISTRO == opensuse-microos ]]; then
+        echo "  Install via 'transactional-update pkg install $pkg' (requires reboot)." >&2
+      else
+        echo "  Install via 'rpm-ostree install $pkg' (requires reboot)." >&2
+      fi
+    fi
+  done
+  (( missing == 0 ))
+}
+
 setup_vmon_kde() {
   if [[ "${XDG_CURRENT_DESKTOP:-}" != *KDE* ]]; then
     echo "  ${yellow}Warning:${normal} the virtual monitor only works on KDE Plasma (KWin, Wayland)."
     echo "  Current desktop: ${XDG_CURRENT_DESKTOP:-unknown}."
   fi
+  if [[ ${XDG_SESSION_TYPE:-} != wayland ]]; then
+    echo "${red}The KDE virtual monitor requires a Wayland session.${normal}" >&2
+    echo "  Current session type: ${XDG_SESSION_TYPE:-unknown}. Log in to Plasma (Wayland) and retry." >&2
+    return 1
+  fi
   pick_mode || return 1
 
   if (( IMMUTABLE )); then
-    local missing=0
-    for cmd in krfb-virtualmonitor kscreen-doctor jq; do
-      if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "${red}'$cmd' not found.${normal}" >&2
-        case $cmd in
-          krfb-virtualmonitor)
-            if [[ $DISTRO == opensuse-microos ]]; then
-              echo "  Install via 'transactional-update pkg install krfb' (requires reboot)." >&2
-            else
-              echo "  Install via 'rpm-ostree install krfb' (requires reboot)." >&2
-            fi
-            ;;
-          kscreen-doctor)
-            if [[ $DISTRO == opensuse-microos ]]; then
-              echo "  Install via 'transactional-update pkg install libkscreen' (requires reboot)." >&2
-            else
-              echo "  Install via 'rpm-ostree install libkscreen' (requires reboot)." >&2
-            fi
-            ;;
-          jq)
-            if [[ $DISTRO == opensuse-microos ]]; then
-              echo "  Install via 'transactional-update pkg install jq' (requires reboot)." >&2
-            else
-              echo "  Install via 'rpm-ostree install jq' (requires reboot)." >&2
-            fi
-            ;;
-        esac
-        missing=1
-      fi
-    done
-    (( missing )) && return 1
+    vmon_kde_require_tools || return 1
+  elif (( UNSUPPORTED_DISTRO )); then
+    # Unsupported distributions use the Flatpak Sunshine build; the host tools
+    # must be installed manually, but they are enough to set the monitor up.
+    if ! vmon_kde_require_tools; then
+      echo "  Install these tools manually with your distro's package manager; Sunshine itself can stay on Flatpak." >&2
+      return 1
+    fi
   else
     case $DISTRO in
       fedora)        pkg_install krfb jq libkscreen || return 1 ;;
       arch|cachyos)  pkg_install krfb jq libkscreen || return 1 ;;
       ubuntu|debian) pkg_install krfb jq libkscreen-bin || return 1 ;;
       *)
-        echo "${red}No supported package mapping is available for '$DISTRO'.${normal}" >&2
-        return 1
+        echo "  ${yellow}No automatic package mapping is available for '$DISTRO'.${normal}" >&2
+        echo "  Install 'krfb', 'libkscreen' and 'jq' manually, then re-run." >&2
+        vmon_kde_require_tools || return 1
         ;;
     esac
-    command -v kscreen-doctor >/dev/null || {
-      echo "${red}kscreen-doctor not found.${normal} It ships with KDE's kscreen/libkscreen package; is Plasma installed?" >&2; return 1; }
-    command -v krfb-virtualmonitor >/dev/null || {
-      echo "${red}krfb-virtualmonitor not found.${normal} Requires a recent krfb release." >&2; return 1; }
-    command -v jq >/dev/null || {
-      echo "${red}jq not found.${normal} Install 'jq' manually and re-run." >&2; return 1; }
+    vmon_kde_require_tools || return 1
   fi
 
   mkdir -p "$BIN_DIR" || return 1
@@ -438,7 +446,7 @@ EOF
     mv "$TMP" "$APP_CONF"
     echo "  'Virtual Monitor' app written to $APP_CONF"
   else
-    rm -f "$TMP"
+    rm -f -- "$TMP"
     echo "${red}Could not update $APP_CONF (invalid JSON?).${normal}" >&2
     return 1
   fi
