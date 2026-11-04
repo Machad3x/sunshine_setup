@@ -16,7 +16,7 @@
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="3.0.2"
+SCRIPT_VERSION="3.1.0"
 TEMP_FILES=()
 
 cleanup_temp_files() {
