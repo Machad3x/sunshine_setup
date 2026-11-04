@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.1.1] - 2026-11-04
+
+### Fixed
+- CIDR validation now rejects trailing dots and leading zeros (`1.2.3.4./24`, `010.1.1.1/24`, `1.2.3.4/024`), which were forwarded to `firewalld`/`ufw` as-is.
+- The service menu no longer raises a bash arithmetic error when a choice with a leading zero (for example `08`) is entered.
+- `install --native` now fails with a clear message on distributions without a native method instead of falsely reporting a successful installation.
+- The Hyprland virtual-monitor backend keeps `apps.json` file permissions when updating its app entry and registers temporary files for cleanup on interruption.
+
+### Added
+- Regression tests for the stricter CIDR forms, leading-zero menu input, the native-install guard and the Hyprland `apps.json` permission preservation.
+
 ## [3.1.0] - 2026-11-04
 
 ### Fixed
