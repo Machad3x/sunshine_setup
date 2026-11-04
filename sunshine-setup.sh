@@ -140,14 +140,19 @@ flatpak_installed() {
 }
 
 # Returns the actual systemd user unit name for a native Sunshine install.
+# The Flatpak unit is also named app-dev...service under ~/.config/systemd/user,
+# so that path must never shadow the system-installed native unit.
 native_unit() {
   local d
-  for d in /usr/lib/systemd/user /etc/systemd/user "$HOME/.config/systemd/user"; do
-    [[ -f "$d/app-dev.lizardbyte.app.Sunshine.service" ]] && { echo "app-dev.lizardbyte.app.Sunshine.service"; return 0; }
-  done
-  for d in /usr/lib/systemd/user /etc/systemd/user "$HOME/.config/systemd/user"; do
+  for d in /usr/lib/systemd/user /etc/systemd/user; do
     [[ -f "$d/sunshine.service" ]] && { echo "sunshine.service"; return 0; }
   done
+  for d in /usr/lib/systemd/user /etc/systemd/user; do
+    [[ -f "$d/app-dev.lizardbyte.app.Sunshine.service" ]] && { echo "app-dev.lizardbyte.app.Sunshine.service"; return 0; }
+  done
+  if [[ -f "$HOME/.config/systemd/user/sunshine.service" ]]; then
+    echo "sunshine.service"; return 0
+  fi
   echo "app-dev.lizardbyte.app.Sunshine.service"
 }
 
