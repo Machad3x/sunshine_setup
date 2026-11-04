@@ -68,6 +68,13 @@ install_deb() {
     echo "  ${yellow}No .deb for your release; using the '$used' build.${normal} If dependencies fail, use the Flatpak option."
   fi
 
+  if ! dpkg-deb --info "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    echo "${red}The downloaded file is not a valid .deb package.${normal}" >&2
+    echo "  Download it manually from https://github.com/LizardByte/Sunshine/releases or use the Flatpak option." >&2
+    return 1
+  fi
+
   apt_update_once
   sudo apt-get install -y "$tmp" || {
     echo "${red}apt could not install the package (dependency mismatch?).${normal} Use the Flatpak option instead." >&2
@@ -94,7 +101,14 @@ install_flatpak() {
     fi
   elif (( IMMUTABLE )); then
     if ! command -v flatpak >/dev/null 2>&1; then
-      echo "${red}Flatpak is not installed.${normal} On immutable systems, Flatpak is pre-installed; if missing, add it via 'rpm-ostree install flatpak' (requires reboot)." >&2
+      echo "${red}Flatpak is not installed.${normal} Install it with the system's supported method and retry:" >&2
+      if [[ $DISTRO == opensuse-microos ]] || command -v transactional-update >/dev/null 2>&1; then
+        echo "  sudo transactional-update pkg install flatpak   # requires reboot" >&2
+      elif command -v rpm-ostree >/dev/null 2>&1; then
+        echo "  sudo rpm-ostree install flatpak                 # requires reboot" >&2
+      else
+        echo "  Use your distro's package manager (Flatpak is usually pre-installed on immutable systems)." >&2
+      fi
       return 1
     fi
   else
@@ -214,10 +228,6 @@ warn_unsupported_distro() {
 }
 
 action_install() {
-  if (( UNSUPPORTED_DISTRO )); then
-    warn_unsupported_distro
-  fi
-
   case "${1:-}" in
     --flatpak-system) install_flatpak system; return ;;
     --flatpak-user)   install_flatpak user;   return ;;
