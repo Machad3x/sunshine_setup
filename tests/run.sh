@@ -161,6 +161,15 @@ remove_vmon
 [[ $(<"$TEST_HOME/removed") == 'hyprland kde ' ]] || fail "removal did not clean configured backends outside a desktop session"
 echo "PASS inactive-session backend removal"
 
+printf '{"env":{}}\n' > "$HOME/.config/sunshine/apps.json"
+if vmon_app_configured "$HOME/.config/sunshine/apps.json" "Virtual Monitor"; then
+  fail "apps-less config was treated as containing the app"
+else
+  rc=$?
+fi
+[[ $rc -eq 1 ]] || fail "apps-less config should be inspectable but missing the app (rc=$rc)"
+echo "PASS apps-less Sunshine config handling"
+
 TEMP_FILES=()
 XDG_CURRENT_DESKTOP=KDE
 XDG_SESSION_TYPE=wayland
@@ -198,4 +207,5 @@ if repair_startup --invalid >/dev/null 2>&1; then fail "invalid repair scope was
 rm -f -- "$SYSTEMCTL_LOG"
 echo "PASS service action validation"
 
+bash "$ROOT/tests/kde.sh"
 bash "$ROOT/tests/hyprland.sh"
