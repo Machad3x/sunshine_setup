@@ -144,6 +144,7 @@ source "$ROOT/modules/vmon/hyprland/common.sh"
 source "$ROOT/modules/vmon/hyprland/add.sh"
 source "$ROOT/modules/vmon/hyprland/remove.sh"
 red='' normal='' bold='' IMMUTABLE=0
+TEMP_FILES=()
 SCRIPT_DIR=$ROOT
 TEST_MODE=native
 pick_mode() {
@@ -159,10 +160,12 @@ NATIVE_CONF="$HOME/.config/sunshine/sunshine.conf"
 NATIVE_APPS="$HOME/.config/sunshine/apps.json"
 printf 'capture = x11\noutput_name = old-output\nport = 47990\n' > "$NATIVE_CONF"
 printf '{"env":{},"apps":[]}\n' > "$NATIVE_APPS"
+chmod 644 "$NATIVE_APPS"
 setup_vmon_hyprland >/dev/null
 grep -q '^capture = wlr$' "$NATIVE_CONF" || { echo "Native capture config not set" >&2; exit 1; }
 grep -q '^output_name = sunshine-vmon$' "$NATIVE_CONF" || { echo "Native output name not set" >&2; exit 1; }
 jq -e '.apps | any(.[]; .name == "Virtual Monitor (Hyprland)")' "$NATIVE_APPS" >/dev/null
+[[ $(stat -c '%a' "$NATIVE_APPS") == 644 ]] || { echo "apps.json permissions were not preserved on add" >&2; exit 1; }
 
 START="$HOME/.local/bin/sunshine-start-hyprland-vmon"
 STOP="$HOME/.local/bin/sunshine-stop-hyprland-vmon"
@@ -304,6 +307,7 @@ printf '[]\n' > "$HYPR_MOCK_STATE"
 remove_vmon_hyprland >/dev/null
 grep -q '^capture = x11$' "$NATIVE_CONF" || { echo "Native capture setting was not restored" >&2; exit 1; }
 grep -q '^output_name = old-output$' "$NATIVE_CONF" || { echo "Native output name was not restored" >&2; exit 1; }
+[[ $(stat -c '%a' "$NATIVE_APPS") == 644 ]] || { echo "apps.json permissions were not preserved on remove" >&2; exit 1; }
 [[ ! -e $START && ! -e $STOP ]] || { echo "Native hooks were not removed" >&2; exit 1; }
 [[ ! -e $RUNTIME ]] || { echo "Native runtime helper was not removed" >&2; exit 1; }
 echo "PASS Hyprland unmanaged-output protection and native restore"
@@ -312,9 +316,11 @@ FLATPAK_CONF="$HOME/.var/app/$FLATPAK_ID/config/sunshine/sunshine.conf"
 FLATPAK_APPS="$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"
 printf 'capture = wayland\noutput_name = original-flatpak\n' > "$FLATPAK_CONF"
 printf '{"env":{},"apps":[]}\n' > "$FLATPAK_APPS"
+chmod 644 "$FLATPAK_APPS"
 TEST_MODE=flatpak
 export WAYLAND_DISPLAY='wayland test display'
 setup_vmon_hyprland >/dev/null
+[[ $(stat -c '%a' "$FLATPAK_APPS") == 644 ]] || { echo "Flatpak apps.json permissions were not preserved on add" >&2; exit 1; }
 DO_CMD=$(jq -r '.apps[] | select(.name == "Virtual Monitor (Hyprland)") | .["prep-cmd"][0].do' "$FLATPAK_APPS")
 UNDO_CMD=$(jq -r '.apps[] | select(.name == "Virtual Monitor (Hyprland)") | .["prep-cmd"][0].undo' "$FLATPAK_APPS")
 [[ $DO_CMD == flatpak-spawn\ --host* ]] || { echo "Flatpak host hook was not generated" >&2; exit 1; }
@@ -327,4 +333,5 @@ jq -e 'length == 0' "$HYPR_MOCK_STATE" >/dev/null
 remove_vmon_hyprland >/dev/null
 grep -q '^capture = wayland$' "$FLATPAK_CONF" || { echo "Flatpak capture setting was not restored" >&2; exit 1; }
 grep -q '^output_name = original-flatpak$' "$FLATPAK_CONF" || { echo "Flatpak output name was not restored" >&2; exit 1; }
+[[ $(stat -c '%a' "$FLATPAK_APPS") == 644 ]] || { echo "Flatpak apps.json permissions were not preserved on remove" >&2; exit 1; }
 echo "PASS Hyprland Flatpak hooks and config restore"

@@ -22,13 +22,15 @@ remove_vmon_hyprland() {
                   "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
     [[ -f $app_conf ]] || continue
     tmp=$(mktemp "${app_conf}.sunshine-vmon.XXXXXX") || return 1
+    TEMP_FILES+=("$tmp")
     if ! jq '.apps = ((.apps // []) | map(select(.name != "Virtual Monitor (Hyprland)")))' "$app_conf" > "$tmp"; then
       rm -f -- "$tmp"
       echo "${red}Could not update $app_conf (invalid JSON?).${normal}" >&2
       return 1
     fi
-    if ! mv "$tmp" "$app_conf"; then
+    if ! chmod --reference="$app_conf" "$tmp" || ! mv -f -- "$tmp" "$app_conf"; then
       rm -f -- "$tmp"
+      echo "${red}Could not replace $app_conf.${normal}" >&2
       return 1
     fi
     echo "  Hyprland app entry removed from $app_conf"

@@ -67,6 +67,7 @@ setup_vmon_hyprland() {
   [[ -f $APP_CONF ]] || printf '{"env":{},"apps":[]}\n' > "$APP_CONF"
   local tmp
   tmp=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
+  TEMP_FILES+=("$tmp")
   if ! jq --arg name "$app_name" --arg cmd_do "$do_cmd" --arg cmd_undo "$undo_cmd" '
     {
       "name": $name, "cmd": "", "output": "", "image-path": "",
@@ -80,20 +81,18 @@ setup_vmon_hyprland() {
     echo "${red}Could not update $APP_CONF (invalid JSON?).${normal}" >&2
     return 1
   fi
-  if ! mv "$tmp" "$APP_CONF"; then
+  if ! chmod --reference="$APP_CONF" "$tmp" || ! mv -f -- "$tmp" "$APP_CONF"; then
     rm -f -- "$tmp"
+    echo "${red}Could not replace $APP_CONF.${normal}" >&2
     return 1
   fi
 
   if ! hypr_vmon_prepare_config "$conf"; then
     tmp=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
-    if jq --arg name "$app_name" '.apps = ((.apps // []) | map(select(.name != $name)))' "$APP_CONF" > "$tmp"; then
-      mv "$tmp" "$APP_CONF" || {
-        rm -f -- "$tmp"
-        echo "${red}Could not roll back the Hyprland app entry in $APP_CONF.${normal}" >&2
-        return 1
-      }
-    else
+    TEMP_FILES+=("$tmp")
+    if ! jq --arg name "$app_name" '.apps = ((.apps // []) | map(select(.name != $name)))' "$APP_CONF" > "$tmp" \
+        || ! chmod --reference="$APP_CONF" "$tmp" \
+        || ! mv -f -- "$tmp" "$APP_CONF"; then
       rm -f -- "$tmp"
       echo "${red}Could not roll back the Hyprland app entry in $APP_CONF.${normal}" >&2
       return 1
