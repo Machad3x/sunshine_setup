@@ -73,8 +73,15 @@ detect_firewall() {
   fi
   if command -v ufw >/dev/null; then
     ufw_installed=1
-    local st; st=$(sudo env LC_ALL=C ufw status 2>/dev/null || true)
-    [[ $st == *"Status: active"* ]] && ufw=1
+    # `ufw status` needs root, so only ask for sudo when firewalld is not the
+    # active backend; otherwise an active firewalld would trigger a password
+    # prompt just to decide between the two.
+    if systemctl is-active --quiet ufw 2>/dev/null; then
+      ufw=1
+    elif (( ! fwd )); then
+      local st; st=$(sudo env LC_ALL=C ufw status 2>/dev/null || true)
+      [[ $st == *"Status: active"* ]] && ufw=1
+    fi
   fi
 
   if (( fwd && ufw )); then

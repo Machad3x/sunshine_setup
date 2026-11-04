@@ -98,7 +98,10 @@ DISTRO=debian
 
 FIREWALL_LOG="$TEST_HOME/firewall.log"
 firewall-cmd() { :; }
-systemctl() { return 0; }
+systemctl() {
+  # Only firewalld is active in this scenario; ufw must not trigger a sudo probe.
+  [[ ${1:-} == is-active && ${3:-} == firewalld ]]
+}
 sudo() {
   [[ ${1:-} == firewall-cmd ]] && printf '%s\n' "$*" >> "$FIREWALL_LOG"
 }
