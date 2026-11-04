@@ -59,8 +59,8 @@ setup_vmon_kde() {
       echo "${red}jq not found.${normal} Install 'jq' manually and re-run." >&2; return 1; }
   fi
 
-  sudo mkdir -p "$BIN_DIR"
-  sudo tee "$BIN_DIR/sunshine-vmon-common.sh" >/dev/null <<'EOF'
+  mkdir -p "$BIN_DIR" || return 1
+  tee "$BIN_DIR/sunshine-vmon-common.sh" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
 VMON_PID="${VMON_BASE}.pid"
@@ -119,7 +119,7 @@ remove_saved_state() {
 }
 EOF
 
-  sudo tee "$BIN_DIR/sunshine-start-vmon" >/dev/null <<'EOF'
+  tee "$BIN_DIR/sunshine-start-vmon" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
@@ -315,7 +315,7 @@ rm -f -- "$OUTPUTS_JSON"
 SETUP_COMPLETE=1
 EOF
 
-  sudo tee "$BIN_DIR/sunshine-stop-vmon" >/dev/null <<'EOF'
+  tee "$BIN_DIR/sunshine-stop-vmon" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
@@ -384,9 +384,9 @@ if (( had_pid && !had_state )); then
 fi
 EOF
 
-  sudo chmod 644 "$BIN_DIR/sunshine-vmon-common.sh"
-  sudo chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
-  command -v restorecon >/dev/null && sudo restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
+  chmod 644 "$BIN_DIR/sunshine-vmon-common.sh"
+  chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
+  command -v restorecon >/dev/null && restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
 
   local DO UNDO env_name env_value quoted start_script_q stop_script_q flatpak_env_args
   if [[ $MODE == flatpak ]]; then

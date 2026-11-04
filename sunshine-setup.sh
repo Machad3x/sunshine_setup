@@ -32,9 +32,11 @@ bold=$'\e[1m';  dim=$'\e[2m'
 red=$'\e[31m';  green=$'\e[32m';  yellow=$'\e[33m';  cyan=$'\e[36m'
 normal=$'\e[0m'
 
+# Virtual-monitor helper scripts live in the user's home so the setup also works
+# on immutable systems where /usr/local is read-only.
 # Used by sourced feature modules.
 # shellcheck disable=SC2034
-BIN_DIR=/usr/local/bin
+BIN_DIR="$HOME/.local/bin"
 FLATPAK_ID=dev.lizardbyte.app.Sunshine
 # Used by sourced feature modules.
 # shellcheck disable=SC2034

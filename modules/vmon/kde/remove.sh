@@ -35,6 +35,6 @@ remove_vmon_kde() {
     rm -f "$HOME/.config/systemd/user/${unit}.d/vmon.conf"
   done
   systemctl --user daemon-reload
-  sudo rm -f -- "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
+  rm -f -- "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
   echo "  Virtual monitor removed. (The Error 503 fix was left untouched.)"
 }
