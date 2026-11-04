@@ -9,7 +9,11 @@ WEBUI_PORT=47990
 valid_cidr_syntax() {
   local cidr=$1 address prefix octet part left right compressed=0 groups=0 ipv4=""
   local -a octets ipv6_groups
-  [[ $cidr =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]] || return 1
+  # Octets and prefixes must not carry redundant leading zeros: tools like
+  # Python's ipaddress (firewalld) and ufw reject or misparse forms such as
+  # "010.1.1.1" or "/024".
+  local ipv4_re='^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$'
+  [[ $cidr =~ ^[0-9A-Fa-f:.]+/(0|[1-9][0-9]{0,2})$ ]] || return 1
   address=${cidr%/*}
   prefix=${cidr#*/}
   if [[ $address == *:* ]]; then
@@ -20,11 +24,9 @@ valid_cidr_syntax() {
       [[ $address == *:"$ipv4" ]] || return 1
       address=${address%:"$ipv4"}
       if (( compressed )) && [[ $address != *::* ]]; then address="${address}:"; fi
-      [[ $ipv4 =~ ^[0-9.]+$ ]] || return 1
+      [[ $ipv4 =~ $ipv4_re ]] || return 1
       IFS=. read -r -a octets <<< "$ipv4"
-      (( ${#octets[@]} == 4 )) || return 1
       for octet in "${octets[@]}"; do
-        [[ $octet =~ ^[0-9]{1,3}$ ]] || return 1
         (( 10#$octet <= 255 )) || return 1
       done
     fi
@@ -56,10 +58,9 @@ valid_cidr_syntax() {
     return
   fi
   (( 10#$prefix <= 32 )) || return 1
+  [[ $address =~ $ipv4_re ]] || return 1
   IFS=. read -r -a octets <<< "$address"
-  (( ${#octets[@]} == 4 )) || return 1
   for octet in "${octets[@]}"; do
-    [[ $octet =~ ^[0-9]{1,3}$ ]] || return 1
     (( 10#$octet <= 255 )) || return 1
   done
 }

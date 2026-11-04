@@ -44,7 +44,14 @@ for cidr in \
   1::2::3/64 \
   1:2:3:4:5:6:7:8:9/64 \
   2001:db8::1/129 \
-  ::ffff:999.2.3.4/128; do
+  ::ffff:999.2.3.4/128 \
+  1.2.3.4./24 \
+  192.168.1.1./32 \
+  ::ffff:1.2.3.4./120 \
+  010.1.1.1/24 \
+  ::ffff:010.1.1.1/120 \
+  1.2.3.4/024 \
+  1.2.3.4/1234; do
   if valid_cidr_syntax "$cidr"; then fail "invalid CIDR accepted: $cidr"; fi
 done
 echo "PASS firewall CIDR validation"
