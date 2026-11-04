@@ -23,7 +23,7 @@ detect_distro custom "vendor debian arch" || fail "ID_LIKE fallback failed"
 [[ $DISTRO == debian ]] || fail "ID_LIKE precedence changed"
 detect_distro cachyos fedora || fail "exact distro ID failed"
 [[ $DISTRO == cachyos ]] || fail "exact ID should take precedence over ID_LIKE"
-if detect_distro unsupported unknown; then fail "unsupported distro was accepted"; fi
+if detect_distro unsupported unknown; then fail "unsupported distro was accepted as a supported family"; fi
 echo "PASS distro detection"
 
 for cidr in \
@@ -66,6 +66,35 @@ FLATPAK_ID=dev.lizardbyte.app.Sunshine
 FLATPAK_UNIT=app-dev.lizardbyte.app.Sunshine.service
 BIN_DIR="$TEST_HOME/bin"
 mkdir -p "$HOME/.config/sunshine" "$BIN_DIR"
+
+UNSUPPORTED_DISTRO=1
+DISTRO=unsupported
+ID=customlinux
+PRETTY_NAME="Custom Linux"
+XDG_CURRENT_DESKTOP=KDE
+XDG_SESSION_TYPE=wayland
+print_desktop_options() {
+  printf '%s\n' "Desktop-specific options:" "Virtual Monitor: KDE Plasma (Wayland)"
+}
+choose() { REPLY=2; }
+FLATPAK_SCOPE=""
+install_flatpak() {
+  case ${1:-} in
+    system|user) FLATPAK_SCOPE=$1 ;;
+    *) return 2 ;;
+  esac
+}
+action_install > "$TEST_HOME/unsupported-install.log" 2>&1
+[[ $FLATPAK_SCOPE == user ]] || fail "unsupported distro did not allow Flatpak installation"
+grep -q 'not a supported distribution' "$TEST_HOME/unsupported-install.log" \
+  || fail "unsupported distro warning was not shown"
+grep -q 'Virtual Monitor: KDE Plasma' "$TEST_HOME/unsupported-install.log" \
+  || fail "desktop-specific options were not shown"
+if install_native >/dev/null 2>&1; then fail "native installation was allowed on unsupported distro"; fi
+echo "PASS unsupported distro Flatpak options"
+source "$ROOT/modules/install.sh"
+UNSUPPORTED_DISTRO=0
+DISTRO=debian
 
 FIREWALL_LOG="$TEST_HOME/firewall.log"
 firewall-cmd() { :; }

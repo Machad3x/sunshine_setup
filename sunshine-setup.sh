@@ -16,7 +16,7 @@
 # Direct:       see `bash sunshine-setup.sh --help`
 set -euo pipefail
 
-SCRIPT_VERSION="3.0.0"
+SCRIPT_VERSION="3.0.1"
 TEMP_FILES=()
 
 cleanup_temp_files() {
@@ -58,9 +58,10 @@ source "$SCRIPT_DIR/modules/common.sh"
 
 # ---------- distro detection ----------
 . /etc/os-release
+UNSUPPORTED_DISTRO=0
 if ! detect_distro "${ID:-}" "${ID_LIKE:-}"; then
-  echo "${red}Unsupported distro (${ID:-?}${ID_LIKE:+; based on $ID_LIKE}). Supported: Fedora, Arch, CachyOS, Ubuntu, Debian, and immutable openSUSE MicroOS.${normal}" >&2
-  exit 1
+  DISTRO=unsupported
+  UNSUPPORTED_DISTRO=1
 fi
 
 # ---------- immutable detection ----------
@@ -118,6 +119,11 @@ pkg_install() {
     arch|cachyos)  sudo pacman -S --needed --noconfirm "$@" ;;
     ubuntu|debian) apt_update_once || return 1; sudo apt-get install -y "$@" ;;
     *)
+      if (( UNSUPPORTED_DISTRO )); then
+        echo "${red}Cannot install packages automatically on unsupported distro '${ID:-unknown}'.${normal}" >&2
+        echo "Install the required package manually with your distro's package manager." >&2
+        return 1
+      fi
       echo "${red}No supported package manager is configured for '$DISTRO'.${normal}" >&2
       return 1
       ;;
@@ -234,13 +240,42 @@ print_system_info() {
   elif (( f ));      then sun_status="${green}flatpak${normal}"
   else                    sun_status="${yellow}not installed${normal}"
   fi
-  (( IMMUTABLE )) && imm_marker=" ${yellow}(immutable — Flatpak recommended)${normal}"
+  if (( UNSUPPORTED_DISTRO )); then
+    imm_marker=" ${yellow}(unsupported distro — Flatpak only; failures are possible)${normal}"
+  elif (( IMMUTABLE )); then
+    imm_marker=" ${yellow}(immutable — Flatpak recommended)${normal}"
+  fi
   echo
   echo "  ${dim}System:${normal}   ${PRETTY_NAME:-$DISTRO}"
   echo "  ${dim}Desktop:${normal}  ${XDG_CURRENT_DESKTOP:-unknown}"
   echo "  ${dim}Sunshine:${normal} $sun_status"
   if [[ -n $imm_marker ]]; then echo "  ${dim}Mode:${normal}     $imm_marker"; fi
   return 0
+}
+
+print_desktop_options() {
+  local backend
+  echo "  ${bold}Desktop-specific options:${normal}"
+  if backend=$(virtual_monitor_backend 2>/dev/null); then
+    case $backend in
+      kde)
+        if [[ ${XDG_SESSION_TYPE:-} == wayland ]]; then
+          echo "    Virtual Monitor: KDE Plasma (Wayland)"
+        else
+          echo "    Virtual Monitor: requires KDE Plasma on Wayland (current session: ${XDG_SESSION_TYPE:-unknown})"
+        fi
+        echo "    Error 503 fix: available, intended for KDE Plasma (Wayland)"
+        ;;
+      hyprland)
+        echo "    Virtual Monitor: Hyprland (Wayland)"
+        echo "    Error 503 fix: available, but intended for KDE Plasma (Wayland)"
+        ;;
+    esac
+  else
+    echo "    Virtual Monitor: unavailable for ${XDG_CURRENT_DESKTOP:-unknown} (supports KDE Plasma and Hyprland on Wayland)"
+    echo "    Error 503 fix: available, but intended for KDE Plasma (Wayland)"
+  fi
+  echo "    Firewall and Sunshine service management are also available."
 }
 
 usage() {

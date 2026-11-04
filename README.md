@@ -42,8 +42,9 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 | **Traditional Systems** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian 13 (trixie) | Native Package **or** Flatpak |
 | **Flatpak Only** | Debian 12 and earlier, and Debian 14+ | Flatpak (`--system` / `--user`) |
 | **Immutable / Atomic** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Flatpak Only** (`--system` / `--user`) |
+| **Unsupported Distributions** | Other distributions not recognized by `ID` or `ID_LIKE` | Flatpak only, best-effort; failures are possible |
 
-The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, then checks `ID_LIKE` from left to right and uses the first supported family. Unknown IDs are not matched by substring. Only Debian 13 (trixie) supports native installation; other Debian releases use Flatpak. Immutable status is detected from the distribution ID and system tooling; native package installation is disabled on detected immutable systems.
+The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, then checks `ID_LIKE` from left to right and uses the first supported family. Unknown IDs are not matched by substring. On an unrecognized distribution, the script continues with a warning, offers system-wide and per-user Flatpak installation, and blocks native installation. Flatpak must be installed manually if it is not already available; package installation and other distro-specific integrations are not guaranteed. The warning also lists desktop-specific features available for the detected KDE Plasma or Hyprland session. Only Debian 13 (trixie) supports native installation; other Debian releases use Flatpak. Immutable status is detected from the distribution ID and system tooling; native package installation is disabled on detected immutable systems.
 
 ---
 
@@ -58,6 +59,7 @@ The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, t
   - `jq`
 - **KDE**: `krfb-virtualmonitor` (provided by `krfb`) and `kscreen-doctor` (provided by `libkscreen` on Fedora/Arch, `libkscreen-bin` on Debian/Ubuntu).
 - **Hyprland**: `hyprctl` (provided by Hyprland) and `flock` (provided by `util-linux`); run setup from an active Hyprland session.
+- **Unrecognized distributions**: host packages required by the virtual monitor must be installed manually with the distro's package manager. KDE requires `krfb`, `libkscreen`, and `jq`; Hyprland requires `jq` and `util-linux` (and an active Hyprland session).
 - *Immutable Systems Note*: The virtual-monitor tools must be available on the host. For KDE, install `krfb`, `libkscreen`, and `jq`; for Hyprland, install `jq` (`hyprctl` comes with Hyprland and `flock` with `util-linux`). On rpm-ostree systems:
   ```bash
   rpm-ostree install krfb libkscreen jq

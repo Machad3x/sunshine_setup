@@ -86,7 +86,13 @@ install_flatpak() {
   esac
   echo "  Installing Sunshine (${bold}Flatpak — $scope${normal})..."
 
-  if (( IMMUTABLE )); then
+  if (( UNSUPPORTED_DISTRO )); then
+    if ! command -v flatpak >/dev/null 2>&1; then
+      echo "${red}Flatpak is not installed on unsupported distro '${ID:-unknown}'.${normal}" >&2
+      echo "Install Flatpak manually with your distro's package manager, then retry." >&2
+      return 1
+    fi
+  elif (( IMMUTABLE )); then
     if ! command -v flatpak >/dev/null 2>&1; then
       echo "${red}Flatpak is not installed.${normal} On immutable systems, Flatpak is pre-installed; if missing, add it via 'rpm-ostree install flatpak' (requires reboot)." >&2
       return 1
@@ -121,6 +127,11 @@ install_flatpak() {
 }
 
 install_native() {
+  if (( UNSUPPORTED_DISTRO )); then
+    echo "${red}Native Sunshine installation is not supported on distro '${ID:-unknown}'.${normal}" >&2
+    echo "Choose one of the Flatpak installation scopes instead." >&2
+    return 1
+  fi
   if (( IMMUTABLE )); then
     echo "${red}Native installation is not supported on immutable systems.${normal}" >&2
     echo "Use Flatpak instead." >&2
@@ -191,13 +202,39 @@ install_native() {
   print_service_status "$(native_unit)" || true
 }
 
+warn_unsupported_distro() {
+  echo
+  echo "  ${yellow}Warning: ${PRETTY_NAME:-${ID:-Unknown distro}} is not a supported distribution.${normal}"
+  echo "  Native installation is unavailable. Flatpak may work, but failures are possible."
+  if ! command -v flatpak >/dev/null 2>&1; then
+    echo "  Flatpak is not installed; install it manually with your distro's package manager before continuing."
+  fi
+  print_desktop_options
+  echo
+}
+
 action_install() {
+  if (( UNSUPPORTED_DISTRO )); then
+    warn_unsupported_distro
+  fi
+
   case "${1:-}" in
     --flatpak-system) install_flatpak system; return ;;
     --flatpak-user)   install_flatpak user;   return ;;
     --flatpak)        install_flatpak system; return ;;
     --native)         install_native;         return ;;
   esac
+
+  if (( UNSUPPORTED_DISTRO )); then
+    warn_unsupported_distro
+    choose "Flatpak scope" "System (--system)" "User (--user)" "Back" || return 0
+    case "$REPLY" in
+      1) install_flatpak system ;;
+      2) install_flatpak user   ;;
+      3) return 0               ;;
+    esac
+    return
+  fi
 
   if (( IMMUTABLE )); then
     echo

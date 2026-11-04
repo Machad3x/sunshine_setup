@@ -42,8 +42,9 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 | **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian 13 (trixie) | Pacote Nativo **ou** Flatpak |
 | **Somente Flatpak** | Debian 12 e anteriores, e Debian 14+ | Flatpak (`--system` / `--user`) |
 | **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
+| **Distribuições Não Suportadas** | Outras distribuições não reconhecidas por `ID` ou `ID_LIKE` | Somente Flatpak, sem garantia; podem ocorrer falhas |
 
-O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial. Somente o Debian 13 (trixie) permite instalação nativa; as outras versões do Debian usam Flatpak. O estado imutável é detectado pelo ID da distribuição e pelas ferramentas do sistema; a instalação nativa é desativada em sistemas imutáveis detectados.
+O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se não for suportado, verifica `ID_LIKE` da esquerda para a direita e usa a primeira família compatível. IDs desconhecidos não são reconhecidos por correspondência parcial. Em distribuições não reconhecidas, o script continua com um aviso, oferece instalação Flatpak para o sistema ou para o usuário e bloqueia a instalação nativa. Se o Flatpak não estiver instalado, será necessário instalá-lo manualmente; a instalação de pacotes e outras integrações específicas da distro não são garantidas. O aviso também lista os recursos disponíveis para a sessão KDE Plasma ou Hyprland detectada. Somente o Debian 13 (trixie) permite instalação nativa; as outras versões do Debian usam Flatpak. O estado imutável é detectado pelo ID da distribuição e pelas ferramentas do sistema; a instalação nativa é desativada em sistemas imutáveis detectados.
 
 ---
 
@@ -58,6 +59,7 @@ O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se 
   - `jq`
 - **KDE**: `krfb-virtualmonitor` (pacote `krfb`) e `kscreen-doctor` (pacote `libkscreen` no Fedora/Arch, `libkscreen-bin` no Debian/Ubuntu).
 - **Hyprland**: `hyprctl` (fornecido pelo Hyprland) e `flock` (pacote `util-linux`); execute a configuração dentro de uma sessão Hyprland ativa.
+- **Distribuições não reconhecidas**: os pacotes do host necessários para o monitor virtual devem ser instalados manualmente com o gerenciador da distro. KDE requer `krfb`, `libkscreen` e `jq`; Hyprland requer `jq` e `util-linux` (além de uma sessão Hyprland ativa).
 - *Nota para Distros Imutáveis*: As ferramentas do monitor virtual precisam estar disponíveis no host. Para KDE, instale `krfb`, `libkscreen` e `jq`; para Hyprland, instale `jq` (`hyprctl` vem com o Hyprland e `flock` com `util-linux`). Em sistemas com rpm-ostree:
   ```bash
   rpm-ostree install krfb libkscreen jq
