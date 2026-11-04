@@ -29,11 +29,11 @@ vmon_app_configured() {
     echo "'jq' is required to inspect $conf." >&2
     return 2
   fi
-  if ! jq -e '.apps | type == "array"' "$conf" >/dev/null 2>&1; then
+  if ! jq -e '(.apps // []) | type == "array"' "$conf" >/dev/null 2>&1; then
     echo "Could not inspect $conf (invalid JSON or apps list)." >&2
     return 2
   fi
-  jq -e --arg name "$name" 'any(.apps[]; .name == $name)' "$conf" >/dev/null
+  jq -e --arg name "$name" 'any((.apps // [])[]; .name == $name)' "$conf" >/dev/null
 }
 
 remove_vmon() {

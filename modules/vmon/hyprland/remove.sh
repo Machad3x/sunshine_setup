@@ -8,7 +8,7 @@ remove_vmon_hyprland() {
   for app_conf in "$HOME/.config/sunshine/apps.json" \
                   "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
     [[ -f $app_conf ]] || continue
-    if ! jq -e '.apps | type == "array"' "$app_conf" >/dev/null 2>&1; then
+    if ! jq -e '(.apps // []) | type == "array"' "$app_conf" >/dev/null 2>&1; then
       echo "${red}Could not update $app_conf (invalid JSON or apps list).${normal}" >&2
       return 1
     fi
@@ -22,7 +22,7 @@ remove_vmon_hyprland() {
                   "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
     [[ -f $app_conf ]] || continue
     tmp=$(mktemp "${app_conf}.sunshine-vmon.XXXXXX") || return 1
-    if ! jq '.apps |= map(select(.name != "Virtual Monitor (Hyprland)"))' "$app_conf" > "$tmp"; then
+    if ! jq '.apps = ((.apps // []) | map(select(.name != "Virtual Monitor (Hyprland)")))' "$app_conf" > "$tmp"; then
       rm -f -- "$tmp"
       echo "${red}Could not update $app_conf (invalid JSON?).${normal}" >&2
       return 1

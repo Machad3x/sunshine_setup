@@ -93,7 +93,7 @@ setup_vmon_hyprland() {
 
   if ! hypr_vmon_prepare_config "$conf"; then
     tmp=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
-    if jq --arg name "$app_name" '.apps |= map(select(.name != $name))' "$APP_CONF" > "$tmp"; then
+    if jq --arg name "$app_name" '.apps = ((.apps // []) | map(select(.name != $name)))' "$APP_CONF" > "$tmp"; then
       mv "$tmp" "$APP_CONF" || {
         rm -f -- "$tmp"
         echo "${red}Could not roll back the Hyprland app entry in $APP_CONF.${normal}" >&2
