@@ -9,7 +9,7 @@ source "$ROOT/modules/service.sh"
 source "$ROOT/modules/install.sh"
 source "$ROOT/modules/vmon/dispatch.sh"
 
-red='' green='' yellow='' dim='' normal='' bold=''
+red='' green='' yellow='' cyan='' dim='' normal='' bold=''
 fail() {
   echo "FAIL: $*" >&2
   exit 1
@@ -213,6 +213,12 @@ if service_action restart --native >/dev/null 2>&1; then fail "service failure w
 if repair_startup --invalid >/dev/null 2>&1; then fail "invalid repair scope was accepted"; fi
 rm -f -- "$SYSTEMCTL_LOG"
 echo "PASS service action validation"
+
+systemctl() { return 0; }
+menu_err=$(printf '08\n10\n' | LC_ALL=C manage_service 2>&1 >/dev/null) \
+  || fail "service menu rejected leading-zero choice"
+[[ $menu_err != *'too great for base'* ]] || fail "leading-zero menu choice caused an arithmetic error"
+echo "PASS service menu leading-zero input"
 
 bash "$ROOT/tests/kde.sh"
 bash "$ROOT/tests/hyprland.sh"

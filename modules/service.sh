@@ -235,7 +235,7 @@ manage_service() {
     if [[ ! $choice =~ ^[0-9]+$ ]]; then
       printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1; continue
     fi
-    if (( choice == back_num )); then return 0; fi
+    if (( 10#$choice == back_num )); then return 0; fi
     case "$choice" in
       1) service_action start "$scope" || true ;;
       2) service_action stop "$scope" || true ;;
