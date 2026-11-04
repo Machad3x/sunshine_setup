@@ -1,6 +1,30 @@
 #!/usr/bin/env bash
 # Shared helpers for the installed Hyprland virtual-monitor hooks.
 
+# Export a valid HYPRLAND_INSTANCE_SIGNATURE for the running compositor.
+# The value inherited by the Sunshine service can be missing or stale (for
+# example after a compositor restart), so fall back to the live socket.
+hypr_vmon_resolve_session() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sig sock
+  export XDG_RUNTIME_DIR="$runtime"
+
+  if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -S "$runtime/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock" ]]; then
+    return 0
+  fi
+
+  for sock in "$runtime"/hypr/*/.socket.sock; do
+    [[ -S $sock ]] || continue
+    sig=${sock#"$runtime"/hypr/}
+    sig=${sig%/.socket.sock}
+    export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+    return 0
+  done
+
+  # No socket found (for example a test harness): leave the environment alone
+  # and let hyprctl report its own connection error.
+  return 0
+}
+
 hypr_vmon_capture_physical_monitors() {
   local name=$1 json
   json=$(hyprctl monitors -j) || {

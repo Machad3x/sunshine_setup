@@ -3,8 +3,8 @@
 # shellcheck disable=SC2154
 
 setup_vmon_hyprland() {
-  local conf start_script stop_script runtime_script app_name do_cmd undo_cmd session_env_args flatpak_env_args
-  local env_name env_value quoted start_script_q stop_script_q
+  local conf start_script stop_script runtime_script app_name do_cmd undo_cmd
+  local start_script_q stop_script_q
   app_name="Virtual Monitor (Hyprland)"
 
   if ! command -v hyprctl >/dev/null 2>&1; then
@@ -49,24 +49,18 @@ setup_vmon_hyprland() {
     return 1
   fi
 
-  session_env_args=""
-  flatpak_env_args=""
-  for env_name in HYPRLAND_INSTANCE_SIGNATURE WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
-    env_value=${!env_name:-}
-    [[ -n $env_value ]] || continue
-    printf -v quoted '%q' "$env_value"
-    session_env_args+=" $env_name=$quoted"
-    flatpak_env_args+=" --env=$env_name=$quoted"
-  done
+  # Do not bake the session environment (HYPRLAND_INSTANCE_SIGNATURE,
+  # WAYLAND_DISPLAY, ...) into apps.json: those values go stale after a reboot
+  # or a compositor restart. The installed hooks resolve them at runtime.
   printf -v start_script_q '%q' "$start_script"
   printf -v stop_script_q '%q' "$stop_script"
 
   if [[ $MODE == flatpak ]]; then
-    do_cmd="flatpak-spawn --host$flatpak_env_args env SUNSHINE_CLIENT_WIDTH=\"\${SUNSHINE_CLIENT_WIDTH:-}\" SUNSHINE_CLIENT_HEIGHT=\"\${SUNSHINE_CLIENT_HEIGHT:-}\" SUNSHINE_CLIENT_FPS=\"\${SUNSHINE_CLIENT_FPS:-}\" $start_script_q"
-    undo_cmd="flatpak-spawn --host$flatpak_env_args env $stop_script_q"
+    do_cmd="flatpak-spawn --host --env=SUNSHINE_CLIENT_WIDTH --env=SUNSHINE_CLIENT_HEIGHT --env=SUNSHINE_CLIENT_FPS $start_script_q"
+    undo_cmd="flatpak-spawn --host $stop_script_q"
   else
-    do_cmd="env$session_env_args $start_script_q"
-    undo_cmd="env$session_env_args $stop_script_q"
+    do_cmd="$start_script_q"
+    undo_cmd="$stop_script_q"
   fi
 
   mkdir -p "$(dirname "$APP_CONF")"

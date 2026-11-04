@@ -34,7 +34,7 @@ remove_vmon_hyprland() {
     echo "  Hyprland app entry removed from $app_conf"
   done
 
-  runtime_state="${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)"
+  runtime_state="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-hyprland-vmon-$(id -u)"
   if [[ -f $runtime_state/state ]]; then
     IFS= read -r refs < "$runtime_state/state" || true
     [[ $refs =~ ^[0-9]+$ ]] || refs=1

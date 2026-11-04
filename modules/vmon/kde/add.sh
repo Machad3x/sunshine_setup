@@ -70,12 +70,30 @@ setup_vmon_kde() {
   mkdir -p "$BIN_DIR" || return 1
   tee "$BIN_DIR/sunshine-vmon-common.sh" >/dev/null <<'EOF'
 #!/usr/bin/env bash
-VMON_BASE="${XDG_RUNTIME_DIR:-/tmp}/sunshine-vmon-$(id -u)"
+VMON_BASE="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-vmon-$(id -u)"
 VMON_PID="${VMON_BASE}.pid"
 VMON_STATE_DIR="${VMON_BASE}.state"
 SUNSHINE_FLATPAK_CONF="${HOME}/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
 SUNSHINE_CONF="${HOME}/.config/sunshine/sunshine.conf"
 CONFIG_TMP=""
+
+# The environment inherited from the Sunshine service (or from flatpak-spawn)
+# can be stale after a reboot. Fill in the live session values when missing.
+resolve_session_env() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sock
+  export XDG_RUNTIME_DIR="$runtime"
+  export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+  if [[ -z ${WAYLAND_DISPLAY:-} || ! -S "$runtime/${WAYLAND_DISPLAY:-}" ]]; then
+    for sock in "$runtime"/wayland-*; do
+      [[ -S $sock ]] || continue
+      export WAYLAND_DISPLAY="${sock##*/}"
+      break
+    done
+  fi
+  if [[ -z ${DBUS_SESSION_BUS_ADDRESS:-} && -S "$runtime/bus" ]]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+  fi
+}
 
 restore_saved_outputs() {
   local output failed=0
@@ -144,6 +162,7 @@ NAME="sunshine-vmon"
 
 COMMON="${BASH_SOURCE[0]%/*}/sunshine-vmon-common.sh"
 source "$COMMON"
+resolve_session_env
 OUTPUTS_JSON="$VMON_STATE_DIR/outputs.json"
 VMON_MODE="${SUNSHINE_VMON_MODE:-}"
 STARTED_PID=""
@@ -329,6 +348,7 @@ set -euo pipefail
 umask 077
 COMMON="${BASH_SOURCE[0]%/*}/sunshine-vmon-common.sh"
 source "$COMMON"
+resolve_session_env
 
 cleanup_config_tmp() {
   [[ -n $CONFIG_TMP ]] && rm -f -- "$CONFIG_TMP" || true
@@ -396,36 +416,16 @@ EOF
   chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
   command -v restorecon >/dev/null && restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
 
-  local DO UNDO env_name env_value quoted start_script_q stop_script_q flatpak_env_args
+  local DO UNDO start_script_q stop_script_q
+  printf -v start_script_q '%q' "$BIN_DIR/sunshine-start-vmon"
+  printf -v stop_script_q '%q' "$BIN_DIR/sunshine-stop-vmon"
   if [[ $MODE == flatpak ]]; then
-    local uid; uid=$(id -u)
-    local wl_display="${WAYLAND_DISPLAY:-}"
-    if [[ -z $wl_display ]]; then
-      local wl_socket
-      wl_socket=$(find "/run/user/$uid" -maxdepth 1 -type s -name 'wayland-*' -print -quit 2>/dev/null || true)
-      wl_display="${wl_socket##*/}"
-    fi
-    wl_display="${wl_display:-wayland-0}"
-    local xdg_rt="${XDG_RUNTIME_DIR:-/run/user/$uid}"
-    local dbus_a="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$uid/bus}"
-    flatpak_env_args=""
-    for env_name in QT_QPA_PLATFORM WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
-      case $env_name in
-        QT_QPA_PLATFORM) env_value=wayland ;;
-        WAYLAND_DISPLAY) env_value=$wl_display ;;
-        XDG_RUNTIME_DIR) env_value=$xdg_rt ;;
-        DBUS_SESSION_BUS_ADDRESS) env_value=$dbus_a ;;
-      esac
-      printf -v quoted '%q' "--env=$env_name=$env_value"
-      flatpak_env_args+=" $quoted"
-    done
-    printf -v start_script_q '%q' "$BIN_DIR/sunshine-start-vmon"
-    printf -v stop_script_q '%q' "$BIN_DIR/sunshine-stop-vmon"
-    DO="flatpak-spawn --host$flatpak_env_args --env=SUNSHINE_CLIENT_WIDTH=\$SUNSHINE_CLIENT_WIDTH --env=SUNSHINE_CLIENT_HEIGHT=\$SUNSHINE_CLIENT_HEIGHT --env=SUNSHINE_CLIENT_FPS=\$SUNSHINE_CLIENT_FPS --env=SUNSHINE_VMON_MODE=flatpak $start_script_q"
-    UNDO="flatpak-spawn --host$flatpak_env_args env $stop_script_q"
+    # Forward only the client geometry. The hook resolves WAYLAND_DISPLAY,
+    # XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS at runtime so a reboot or a
+    # session restart does not leave stale values in apps.json.
+    DO="flatpak-spawn --host --env=SUNSHINE_VMON_MODE=flatpak --env=SUNSHINE_CLIENT_WIDTH --env=SUNSHINE_CLIENT_HEIGHT --env=SUNSHINE_CLIENT_FPS $start_script_q"
+    UNDO="flatpak-spawn --host $stop_script_q"
   else
-    printf -v start_script_q '%q' "$BIN_DIR/sunshine-start-vmon"
-    printf -v stop_script_q '%q' "$BIN_DIR/sunshine-stop-vmon"
     DO="env SUNSHINE_VMON_MODE=native $start_script_q"
     UNDO="$stop_script_q"
   fi

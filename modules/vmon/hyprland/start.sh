@@ -2,9 +2,10 @@
 set -euo pipefail
 umask 077
 source "$(dirname -- "${BASH_SOURCE[0]}")/sunshine-hyprland-vmon-runtime.sh"
+hypr_vmon_resolve_session
 
 NAME="sunshine-vmon"
-STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)"
+STATE_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-hyprland-vmon-$(id -u)"
 PHYSICAL_STATE="$STATE_DIR/physical-monitors.json"
 WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
 HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
