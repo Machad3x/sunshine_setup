@@ -412,8 +412,15 @@ if (( had_pid && !had_state )); then
 fi
 EOF
 
-  chmod 644 "$BIN_DIR/sunshine-vmon-common.sh"
-  chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon"
+  if [[ ! -s $BIN_DIR/sunshine-vmon-common.sh \
+      || ! -s $BIN_DIR/sunshine-start-vmon \
+      || ! -s $BIN_DIR/sunshine-stop-vmon ]]; then
+    echo "${red}Could not write the virtual-monitor hooks to $BIN_DIR.${normal}" >&2
+    return 1
+  fi
+  chmod 644 "$BIN_DIR/sunshine-vmon-common.sh" \
+    && chmod 755 "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" \
+    || { echo "${red}Could not set permissions on the virtual-monitor hooks.${normal}" >&2; return 1; }
   command -v restorecon >/dev/null && restorecon "$BIN_DIR/sunshine-vmon-common.sh" "$BIN_DIR/sunshine-start-vmon" "$BIN_DIR/sunshine-stop-vmon" || true
 
   local DO UNDO start_script_q stop_script_q
@@ -432,7 +439,8 @@ EOF
 
   mkdir -p "$(dirname "$APP_CONF")"
   [[ -f "$APP_CONF" ]] || echo '{"env":{},"apps":[]}' > "$APP_CONF"
-  local TMP; TMP=$(mktemp)
+  local TMP
+  TMP=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
   TEMP_FILES+=("$TMP")
   if jq --arg cmd_do "$DO" --arg cmd_undo "$UNDO" '
     {
@@ -443,7 +451,11 @@ EOF
     } as $app
     | .apps = ((.apps // []) | map(select(.name != $app.name)) + [$app])
   ' "$APP_CONF" > "$TMP"; then
-    mv "$TMP" "$APP_CONF"
+    if ! chmod --reference="$APP_CONF" "$TMP" || ! mv -f -- "$TMP" "$APP_CONF"; then
+      rm -f -- "$TMP"
+      echo "${red}Could not replace $APP_CONF.${normal}" >&2
+      return 1
+    fi
     echo "  'Virtual Monitor' app written to $APP_CONF"
   else
     rm -f -- "$TMP"
