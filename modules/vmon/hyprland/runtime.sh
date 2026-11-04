@@ -75,9 +75,13 @@ hypr_vmon_wait_for_output_active() {
 
 hypr_vmon_set_monitor() {
   local name=$1 mode=$2 position=$3 scale=$4 transform=$5 result command
-  printf -v command \
-    'hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s, transform = %s })' \
-    "$name" "$mode" "$position" "$scale" "$transform"
+  if [[ $mode == disable ]]; then
+    printf -v command 'hl.monitor({ output = "%s", disabled = true })' "$name"
+  else
+    printf -v command \
+      'hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s, transform = %s, disabled = false })' \
+      "$name" "$mode" "$position" "$scale" "$transform"
+  fi
 
   if result=$(hyprctl eval "$command" 2>/dev/null) && [[ $result == ok ]]; then
     return 0

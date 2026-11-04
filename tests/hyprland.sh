@@ -45,8 +45,14 @@ case ${1:-} in
     [[ ${HYPR_MOCK_EVAL_FAIL:-0} == 1 ]] && exit 1
     if [[ $2 =~ output[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
       monitor_name=${BASH_REMATCH[1]}
-      if [[ $2 =~ mode[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+      if [[ $2 =~ disabled[[:space:]]*=[[:space:]]*true ]]; then
+        mode=disable
+      elif [[ $2 =~ mode[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
         mode=${BASH_REMATCH[1]}
+      else
+        mode=""
+      fi
+      if [[ -n $mode ]]; then
         if [[ $monitor_name == "${HYPR_MOCK_EVAL_FAIL_NAME:-}" ]]; then
           exit 1
         elif [[ $mode == disable ]]; then
@@ -176,23 +182,37 @@ jq -e 'length == 0' "$HYPR_MOCK_STATE" >/dev/null
 [[ ! -e $STATE_DIR/state ]] || { echo "State was not removed after final stop" >&2; exit 1; }
 echo "PASS Hyprland native lifecycle and reference counting"
 
+printf '[{"name":"DP-1","description":"Dell Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":0,"y":0,"scale":1,"transform":0}]\n' \
+  > "$HYPR_MOCK_STATE"
+"$START"
+grep -q 'hl.monitor({ output = "DP-1", disabled = true })' "$HYPR_MOCK_CALLS" \
+  || { echo "Current Hyprland monitor-disable API was not used" >&2; exit 1; }
+jq -e 'length == 1 and .[0].name == "sunshine-vmon"' "$HYPR_MOCK_STATE" >/dev/null \
+  || { echo "Current Hyprland API did not disable the physical output" >&2; exit 1; }
+"$STOP"
+grep -q 'output = "DP-1".*disabled = false' "$HYPR_MOCK_CALLS" \
+  || { echo "Current Hyprland monitor-enable API was not used" >&2; exit 1; }
+jq -e 'length == 1 and .[0].name == "DP-1"' "$HYPR_MOCK_STATE" >/dev/null \
+  || { echo "Current Hyprland API did not restore the physical output" >&2; exit 1; }
+echo "PASS Hyprland current monitor API suspend and restore"
+
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0},{"name":"HEADLESS-1","description":"Headless monitor","width":1920,"height":1080,"refreshRate":60,"x":4480,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
 HYPR_MOCK_EVAL_FAIL=1 "$START"
 jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "DP-1")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not disabled selectively" >&2; exit 1; }
-grep -q 'hl.monitor({ output = "DP-1", mode = "disable"' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "DP-1", disabled = true })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output disable command was not issued" >&2; exit 1; }
-grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "disable"' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "HDMI-A-1", disabled = true })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not disabled" >&2; exit 1; }
 grep -q 'keyword monitor DP-1,disable' "$HYPR_MOCK_CALLS" \
   || { echo "Legacy physical output disable fallback was not used" >&2; exit 1; }
 HYPR_MOCK_EVAL_FAIL=1 "$STOP"
 jq -e 'length == 3 and any(.[]; .name == "DP-1") and any(.[]; .name == "HDMI-A-1") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "sunshine-vmon")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not restored" >&2; exit 1; }
-grep -q 'hl.monitor({ output = "DP-1", mode = "2560x1440@59.95", position = "0x0", scale = 1, transform = 0 })' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "DP-1", mode = "2560x1440@59.95", position = "0x0", scale = 1, transform = 0, disabled = false })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output mode was not restored" >&2; exit 1; }
-grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "2560x0", scale = 1, transform = 0 })' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "2560x0", scale = 1, transform = 0, disabled = false })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not restored" >&2; exit 1; }
 grep -q 'keyword monitor DP-1,2560x1440@59.95,0x0,1,0' "$HYPR_MOCK_CALLS" \
   || { echo "Legacy physical output restore fallback was not used" >&2; exit 1; }
