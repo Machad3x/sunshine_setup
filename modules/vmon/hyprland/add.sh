@@ -3,7 +3,7 @@
 # shellcheck disable=SC2154
 
 setup_vmon_hyprland() {
-  local conf start_script stop_script app_name do_cmd undo_cmd session_env_args flatpak_env_args
+  local conf start_script stop_script runtime_script app_name do_cmd undo_cmd session_env_args flatpak_env_args
   local env_name env_value quoted start_script_q stop_script_q
   app_name="Virtual Monitor (Hyprland)"
 
@@ -40,9 +40,11 @@ setup_vmon_hyprland() {
 
   start_script="$HOME/.local/bin/sunshine-start-hyprland-vmon"
   stop_script="$HOME/.local/bin/sunshine-stop-hyprland-vmon"
+  runtime_script="$HOME/.local/bin/sunshine-hyprland-vmon-runtime.sh"
   mkdir -p "$HOME/.local/bin" || return 1
   if ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/start.sh" "$start_script" \
-      || ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/stop.sh" "$stop_script"; then
+      || ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/stop.sh" "$stop_script" \
+      || ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/runtime.sh" "$runtime_script"; then
     echo "${red}Could not install the Hyprland virtual-monitor hooks.${normal}" >&2
     return 1
   fi
@@ -110,7 +112,8 @@ setup_vmon_hyprland() {
 
   ${bold}Hyprland virtual monitor configured (created on demand).${normal}
   The Sunshine app '$app_name' creates a headless output before capture and removes it
-  after the session. Capture method 'wlr' and output_name 'sunshine-vmon' were set.
+  after the session. Physical displays are disabled for the session and restored afterward.
+  Capture method 'wlr' and output_name 'sunshine-vmon' were set.
   Restart Sunshine to load these settings.
 MSG
 }

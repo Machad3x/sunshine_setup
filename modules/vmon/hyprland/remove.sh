@@ -3,7 +3,7 @@
 # shellcheck disable=SC2154
 
 remove_vmon_hyprland() {
-  local state_dir app_conf tmp start_script stop_script runtime_state refs=0
+  local state_dir app_conf tmp start_script stop_script runtime_script runtime_state refs=0
   state_dir=$(hypr_vmon_state_dir)
   for app_conf in "$HOME/.config/sunshine/apps.json" \
                   "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
@@ -47,7 +47,8 @@ remove_vmon_hyprland() {
   else
     start_script="$HOME/.local/bin/sunshine-start-hyprland-vmon"
     stop_script="$HOME/.local/bin/sunshine-stop-hyprland-vmon"
-    rm -f -- "$start_script" "$stop_script"
+    runtime_script="$HOME/.local/bin/sunshine-hyprland-vmon-runtime.sh"
+    rm -f -- "$start_script" "$stop_script" "$runtime_script"
   fi
 
   if [[ -d $state_dir ]]; then

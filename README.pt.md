@@ -25,6 +25,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
   - Backends separados para KDE e Hyprland, selecionados conforme a sessão de desktop ativa.
   - KDE cria a tela virtual usando `krfb-virtualmonitor` e `kscreen-doctor`.
   - Hyprland cria uma saída headless com `hyprctl` somente durante a sessão do app Sunshine e a remove ao terminar a captura.
+  - Durante a captura, Hyprland desativa temporariamente as telas físicas e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão.
   - Os hooks do Hyprland são scripts independentes e limpam uma saída recém-criada caso a inicialização falhe.
   - Ambos ajustam resolução e taxa de quadros conforme o cliente (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); o backend Hyprland configura a captura `wlr`.
 - **Correções e Ferramentas de Manutenção**:
@@ -117,7 +118,7 @@ Para habilitar a troca dinâmica de resolução durante o streaming com o Moonli
    - **Para Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **Para Instalação Nativa**: `systemctl --user restart sunshine`
 
-O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao parar o Sunshine. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight e remove somente a saída criada por ele. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
+O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao parar o Sunshine. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight, desativa temporariamente as telas físicas e restaura modo, posição, escala e transformação anteriores ao encerrar a captura. Ele remove somente a saída criada por si. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
 
 A configuração do Hyprland deve ser feita em uma sessão Hyprland ativa. Ela pode ser removida depois a partir de qualquer desktop compatível; o removedor identifica qual backend está configurado.
 

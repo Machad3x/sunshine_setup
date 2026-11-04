@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+source "$(dirname -- "${BASH_SOURCE[0]}")/sunshine-hyprland-vmon-runtime.sh"
 
 NAME="sunshine-vmon"
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)"
+PHYSICAL_STATE="$STATE_DIR/physical-monitors.json"
 WIDTH="${SUNSHINE_CLIENT_WIDTH:-1920}"
 HEIGHT="${SUNSHINE_CLIENT_HEIGHT:-1080}"
 FPS="${SUNSHINE_CLIENT_FPS:-60}"
@@ -14,7 +16,9 @@ FPS="${FPS%.*}"
 RES="${WIDTH}x${HEIGHT}@${FPS}"
 CREATED_NOW=0
 STATE_COMMITTED=0
+STATE_WRITTEN=0
 STATE_TMP=""
+PHYSICAL_MONITORS=""
 
 monitor_json() {
   hyprctl monitors -j
@@ -36,14 +40,27 @@ configure_monitor() {
 }
 
 cleanup_partial_start() {
-  local status=$?
+  local status=$? restore_ok=1 output_ok=1
   trap - EXIT
   [[ -n $STATE_TMP ]] && rm -f -- "$STATE_TMP"
-  if (( ! STATE_COMMITTED && CREATED_NOW )) && monitor_exists; then
-    hyprctl output remove "$NAME" >/dev/null || {
-      echo "Could not remove the incomplete Hyprland headless output $NAME." >&2
+  if (( ! STATE_COMMITTED )) && [[ -f $PHYSICAL_STATE ]]; then
+    if ! hypr_vmon_apply_physical_monitors restore "$PHYSICAL_STATE"; then
+      restore_ok=0
       status=1
-    }
+    fi
+  fi
+  if (( ! STATE_COMMITTED && CREATED_NOW )) && monitor_exists; then
+    if ! hyprctl output remove "$NAME" >/dev/null; then
+      echo "Could not remove the incomplete Hyprland headless output $NAME." >&2
+      output_ok=0
+      status=1
+    fi
+  fi
+  if (( ! STATE_COMMITTED && restore_ok && output_ok )); then
+    rm -f -- "$PHYSICAL_STATE"
+    if (( STATE_WRITTEN )); then
+      rm -f -- "$STATE_DIR/state"
+    fi
   fi
   exit "$status"
 }
@@ -78,7 +95,7 @@ fi
 [[ $OWNED == 0 || $OWNED == 1 ]] || { echo "Invalid Hyprland virtual-monitor ownership state." >&2; exit 1; }
 
 if (( REFS == 0 )); then
-  if [[ -e $STATE_DIR/owned || $OWNED == 1 ]]; then
+  if [[ -e $STATE_DIR/owned || $OWNED == 1 || -e $PHYSICAL_STATE ]]; then
     echo "A stale Hyprland virtual-monitor state exists; remove it before starting again." >&2
     exit 1
   fi
@@ -86,6 +103,7 @@ if (( REFS == 0 )); then
     echo "An unmanaged output named $NAME already exists; refusing to alter it." >&2
     exit 1
   fi
+  PHYSICAL_MONITORS=$(hypr_vmon_capture_physical_monitors "$NAME") || exit 1
 fi
 
 if ! monitor_exists; then
@@ -114,10 +132,21 @@ if ! configure_monitor; then
   exit 1
 fi
 
+if (( REFS == 0 )); then
+  STATE_TMP=$(mktemp "$STATE_DIR/physical-monitors.XXXXXX")
+  printf '%s\n' "$PHYSICAL_MONITORS" > "$STATE_TMP"
+  mv "$STATE_TMP" "$PHYSICAL_STATE"
+  STATE_TMP=""
+fi
+
 STATE_TMP=$(mktemp "$STATE_DIR/state.XXXXXX")
 printf '%s\n%s\n' "$((REFS + 1))" "$OWNED" > "$STATE_TMP"
 mv "$STATE_TMP" "$STATE_DIR/state"
 STATE_TMP=""
+STATE_WRITTEN=1
+if (( REFS == 0 )); then
+  hypr_vmon_apply_physical_monitors disable "$PHYSICAL_STATE"
+fi
 STATE_COMMITTED=1
 rm -f -- "$STATE_DIR/references" "$STATE_DIR/owned" \
   || echo "Warning: legacy Hyprland virtual-monitor state files could not be removed." >&2

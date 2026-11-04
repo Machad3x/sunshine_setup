@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+source "$(dirname -- "${BASH_SOURCE[0]}")/sunshine-hyprland-vmon-runtime.sh"
 
 NAME="sunshine-vmon"
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/sunshine-hyprland-vmon-$(id -u)"
+PHYSICAL_STATE="$STATE_DIR/physical-monitors.json"
 [[ -d $STATE_DIR ]] || exit 0
 exec 9>"$STATE_DIR/lock"
 flock -x 9
-[[ -f $STATE_DIR/state || -f $STATE_DIR/references ]] || exit 0
+[[ -f $STATE_DIR/state || -f $STATE_DIR/references || -f $PHYSICAL_STATE ]] || exit 0
 
 REFS=""
 OWNED=0
@@ -28,6 +30,9 @@ else
   if [[ -f $STATE_DIR/owned ]]; then
     IFS= read -r OWNED < "$STATE_DIR/owned" || true
   fi
+  if [[ ! -f $STATE_DIR/references && -f $PHYSICAL_STATE ]]; then
+    REFS=1
+  fi
 fi
 [[ $REFS =~ ^[0-9]+$ ]] || { echo "Invalid Hyprland virtual-monitor reference state." >&2; exit 1; }
 [[ $OWNED == 0 || $OWNED == 1 ]] || { echo "Invalid Hyprland virtual-monitor ownership state." >&2; exit 1; }
@@ -42,11 +47,15 @@ if (( REFS > 1 )); then
   exit 0
 fi
 
+if [[ -f $PHYSICAL_STATE ]]; then
+  hypr_vmon_apply_physical_monitors restore "$PHYSICAL_STATE"
+fi
+
 if (( OWNED )); then
   if hyprctl monitors -j | jq -e --arg name "$NAME" 'type == "array" and any(.[]; .name == $name)' >/dev/null 2>&1; then
     hyprctl output remove "$NAME"
   fi
 fi
-rm -f -- "$STATE_DIR/state" "$STATE_DIR/references" "$STATE_DIR/owned" \
+rm -f -- "$STATE_DIR/state" "$STATE_DIR/references" "$STATE_DIR/owned" "$PHYSICAL_STATE" \
   "$STATE_DIR/references.tmp" "$STATE_DIR/owned.tmp"
 rmdir "$STATE_DIR" 2>/dev/null || true
