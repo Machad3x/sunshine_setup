@@ -73,8 +73,29 @@ hypr_vmon_wait_for_output_active() {
   return 1
 }
 
+hypr_vmon_set_monitor() {
+  local name=$1 mode=$2 position=$3 scale=$4 transform=$5 result command
+  printf -v command \
+    'hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s, transform = %s })' \
+    "$name" "$mode" "$position" "$scale" "$transform"
+
+  if result=$(hyprctl eval "$command" 2>/dev/null) && [[ $result == ok ]]; then
+    return 0
+  fi
+
+  if [[ $mode == disable ]]; then
+    result=$(hyprctl keyword monitor "$name,disable" 2>/dev/null) || return 1
+  else
+    result=$(hyprctl keyword monitor "$name,$mode,$position,$scale,$transform" 2>/dev/null) || return 1
+  fi
+  if [[ $result == ok ]]; then
+    return 0
+  fi
+  return 1
+}
+
 hypr_vmon_apply_physical_monitors() {
-  local action=$1 state_file=$2 monitor name mode position scale transform failed=0 result
+  local action=$1 state_file=$2 monitor name mode position scale transform failed=0
   local -a monitors fields
 
   [[ $action == disable || $action == restore ]] || {
@@ -105,7 +126,7 @@ hypr_vmon_apply_physical_monitors() {
     )
     name=${fields[0]}
     if [[ $action == disable ]]; then
-      if ! result=$(hyprctl keyword monitor "$name,disable") || [[ $result != ok ]]; then
+      if ! hypr_vmon_set_monitor "$name" disable "${fields[2]}" "${fields[3]}" "${fields[4]}"; then
         echo "Could not disable the Hyprland output $name." >&2
         return 1
       fi
@@ -117,7 +138,7 @@ hypr_vmon_apply_physical_monitors() {
     position=${fields[2]}
     scale=${fields[3]}
     transform=${fields[4]}
-    if ! hyprctl keyword monitor "$name,$mode,$position,$scale,$transform" >/dev/null; then
+    if ! hypr_vmon_set_monitor "$name" "$mode" "$position" "$scale" "$transform"; then
       echo "Could not restore the Hyprland output $name." >&2
       failed=1
       continue

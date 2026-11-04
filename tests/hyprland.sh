@@ -43,6 +43,45 @@ case ${1:-} in
     printf '%s\n' "$2" >> "$HYPR_MOCK_CALLS"
     printf '%s' "${WAYLAND_DISPLAY:-}" > "$HYPR_MOCK_ENV"
     [[ ${HYPR_MOCK_EVAL_FAIL:-0} == 1 ]] && exit 1
+    if [[ $2 =~ output[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+      monitor_name=${BASH_REMATCH[1]}
+      if [[ $2 =~ mode[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+        mode=${BASH_REMATCH[1]}
+        if [[ $monitor_name == "${HYPR_MOCK_EVAL_FAIL_NAME:-}" ]]; then
+          exit 1
+        elif [[ $mode == disable ]]; then
+          if [[ $monitor_name != "${HYPR_MOCK_EVAL_NOOP_NAME:-}" ]]; then
+            jq --arg name "$monitor_name" '[.[] | select(.name != $name)]' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+            mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+          fi
+        elif [[ $monitor_name == "${HYPR_MOCK_EVAL_RESTORE_FAIL_NAME:-}" ]]; then
+          jq --arg name "$monitor_name" 'map(select(.name != $name))' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+          mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+        elif [[ $monitor_name == DP-1 || $monitor_name == HDMI-A-1 ]]; then
+          if [[ $2 =~ position[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+            position=${BASH_REMATCH[1]}
+          fi
+          if [[ $2 =~ scale[[:space:]]*=[[:space:]]*([0-9.]+) ]]; then
+            scale=${BASH_REMATCH[1]}
+          fi
+          if [[ $2 =~ transform[[:space:]]*=[[:space:]]*([0-9]+) ]]; then
+            transform=${BASH_REMATCH[1]}
+          fi
+          resolution=${mode%@*}
+          refresh=${mode#*@}
+          width=${resolution%x*}
+          height=${resolution#*x}
+          x=${position%x*}
+          y=${position#*x}
+          jq --arg name "$monitor_name" --argjson width "$width" --argjson height "$height" \
+            --argjson refresh "$refresh" --argjson x "$x" --argjson y "$y" \
+            --argjson scale "$scale" --argjson transform "$transform" \
+            'map(select(.name != $name)) + [{name:$name,description:($name + " Physical Monitor"),width:$width,height:$height,refreshRate:$refresh,x:$x,y:$y,scale:$scale,transform:$transform}]' \
+            "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+          mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+        fi
+      fi
+    fi
     printf 'ok\n'
     ;;
   keyword)
@@ -139,27 +178,31 @@ echo "PASS Hyprland native lifecycle and reference counting"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0},{"name":"HEADLESS-1","description":"Headless monitor","width":1920,"height":1080,"refreshRate":60,"x":4480,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-"$START"
+HYPR_MOCK_EVAL_FAIL=1 "$START"
 jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "DP-1")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not disabled selectively" >&2; exit 1; }
-grep -q 'keyword monitor DP-1,disable' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "DP-1", mode = "disable"' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output disable command was not issued" >&2; exit 1; }
-grep -q 'keyword monitor HDMI-A-1,disable' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "disable"' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not disabled" >&2; exit 1; }
-"$STOP"
+grep -q 'keyword monitor DP-1,disable' "$HYPR_MOCK_CALLS" \
+  || { echo "Legacy physical output disable fallback was not used" >&2; exit 1; }
+HYPR_MOCK_EVAL_FAIL=1 "$STOP"
 jq -e 'length == 3 and any(.[]; .name == "DP-1") and any(.[]; .name == "HDMI-A-1") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "sunshine-vmon")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not restored" >&2; exit 1; }
-grep -q 'keyword monitor DP-1,2560x1440@59.95,0x0,1,0' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "DP-1", mode = "2560x1440@59.95", position = "0x0", scale = 1, transform = 0 })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output mode was not restored" >&2; exit 1; }
-grep -q 'keyword monitor HDMI-A-1,1920x1080@60,2560x0,1,0' "$HYPR_MOCK_CALLS" \
+grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "2560x0", scale = 1, transform = 0 })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not restored" >&2; exit 1; }
+grep -q 'keyword monitor DP-1,2560x1440@59.95,0x0,1,0' "$HYPR_MOCK_CALLS" \
+  || { echo "Legacy physical output restore fallback was not used" >&2; exit 1; }
 printf '[]\n' > "$HYPR_MOCK_STATE"
 echo "PASS Hyprland physical output suspend and restore"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"Dell Inc. Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME=HDMI-A-1 "$START" >/dev/null
-if HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME=HDMI-A-1 "$STOP" >/dev/null 2>&1; then
+HYPR_MOCK_EVAL_RESTORE_FAIL_NAME=HDMI-A-1 "$START" >/dev/null
+if HYPR_MOCK_EVAL_RESTORE_FAIL_NAME=HDMI-A-1 "$STOP" >/dev/null 2>&1; then
   echo "Monitor restoration failure was ignored" >&2
   exit 1
 fi
@@ -174,7 +217,7 @@ echo "PASS Hyprland physical-output restore verification"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-if HYPR_MOCK_KEYWORD_NOOP_NAME=DP-1 "$START" >/dev/null 2>&1; then
+if HYPR_MOCK_EVAL_NOOP_NAME=DP-1 "$START" >/dev/null 2>&1; then
   echo "Silent physical-output disable failure was not detected" >&2
   exit 1
 fi
@@ -187,7 +230,8 @@ echo "PASS Hyprland silent physical-output disable failure"
 
 printf '[{"name":"DP-1","description":"DP-1 Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"HDMI-A-1 Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-if HYPR_MOCK_KEYWORD_FAIL_NAME=HDMI-A-1 "$START" >/dev/null 2>&1; then
+if HYPR_MOCK_EVAL_FAIL_NAME=HDMI-A-1 HYPR_MOCK_KEYWORD_FAIL_NAME=HDMI-A-1 \
+    "$START" >/dev/null 2>&1; then
   echo "Partial physical-output disable failure was ignored" >&2
   exit 1
 fi
