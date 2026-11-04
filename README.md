@@ -25,7 +25,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
   - Separate KDE and Hyprland backends, selected from the active desktop session.
   - KDE provisions its display using `krfb-virtualmonitor` and `kscreen-doctor`.
   - Hyprland creates a headless output with `hyprctl` only for the Sunshine app session, then removes it after capture ends.
-  - Hyprland temporarily disables physical displays during capture and restores their previous mode, position, scale, and transform when the session ends.
+  - Hyprland temporarily disables physical displays during capture, confirms they are inactive, and restores their previous mode, position, scale, and transform when the session ends.
   - Hyprland lifecycle hooks are maintained as standalone scripts and clean up a newly created output when startup fails.
   - Both backends match the client resolution and frame rate (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS); the Hyprland backend configures Sunshine for `wlr` capture.
 - **Troubleshooting & Utility Actions**:
@@ -118,7 +118,7 @@ To enable dynamic virtual resolution streaming with Moonlight:
    - **For Flatpak**: `systemctl --user restart app-dev.lizardbyte.app.Sunshine`
    - **For Native**: `systemctl --user restart sunshine`
 
-The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when Sunshine stops. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, temporarily disables physical displays, and restores their previous mode, position, scale, and transform when capture ends. It removes only an output it created. Its standalone start hook rolls back an output created during an unsuccessful startup. Removing the configuration restores the previous `capture` and `output_name` settings.
+The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when Sunshine stops. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, temporarily disables physical displays, verifies each is inactive before capture continues, and restores their previous mode, position, scale, and transform when capture ends. It removes only an output it created. Its standalone start hook rolls back an output created during an unsuccessful startup. Removing the configuration restores the previous `capture` and `output_name` settings.
 
 The Hyprland backend must be configured from an active Hyprland session. Its configuration can be removed later from any supported desktop session; the remover detects which backend is configured.
 

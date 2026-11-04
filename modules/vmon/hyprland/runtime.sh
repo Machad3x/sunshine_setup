@@ -12,9 +12,8 @@ hypr_vmon_capture_physical_monitors() {
     else [
       .[]
       | select(.name != $name)
-      | select((.description // "") != "")
       | select(((.description // "") | ascii_downcase | test("headless|virtual")) | not)
-      | select((.name | ascii_upcase | test("^(HEADLESS|WL)-")) | not)
+      | select((.name | ascii_upcase | test("^(HEADLESS|WL|VIRTUAL)-")) | not)
       | {
           name,
           width,
@@ -30,8 +29,37 @@ hypr_vmon_capture_physical_monitors() {
   ' <<< "$json"
 }
 
+hypr_vmon_output_is_active() {
+  local name=$1 json
+  json=$(hyprctl monitors -j) || {
+    echo "Could not read Hyprland monitor state while checking $name." >&2
+    return 2
+  }
+  jq -e 'type == "array"' <<< "$json" >/dev/null || {
+    echo "Hyprland returned an invalid monitor list while checking $name." >&2
+    return 2
+  }
+  jq -e --arg name "$name" 'any(.[]; .name == $name)' <<< "$json" >/dev/null
+}
+
+hypr_vmon_wait_for_output_disabled() {
+  local name=$1 attempt status
+  for ((attempt = 0; attempt < 20; attempt++)); do
+    if hypr_vmon_output_is_active "$name"; then
+      sleep 0.1
+      continue
+    else
+      status=$?
+    fi
+    (( status == 1 )) && return 0
+    return 1
+  done
+  echo "Hyprland did not disable the physical output $name." >&2
+  return 1
+}
+
 hypr_vmon_apply_physical_monitors() {
-  local action=$1 state_file=$2 monitor name mode position scale transform failed=0
+  local action=$1 state_file=$2 monitor name mode position scale transform failed=0 result
   local -a monitors fields
 
   [[ $action == disable || $action == restore ]] || {
@@ -62,10 +90,11 @@ hypr_vmon_apply_physical_monitors() {
     )
     name=${fields[0]}
     if [[ $action == disable ]]; then
-      if ! hyprctl keyword monitor "$name,disable" >/dev/null; then
+      if ! result=$(hyprctl keyword monitor "$name,disable") || [[ $result != ok ]]; then
         echo "Could not disable the Hyprland output $name." >&2
         return 1
       fi
+      hypr_vmon_wait_for_output_disabled "$name" || return 1
       continue
     fi
 

@@ -51,8 +51,10 @@ case ${1:-} in
     [[ ${3:-} == *,disable && ${3%,disable} == "${HYPR_MOCK_KEYWORD_FAIL_NAME:-}" ]] && exit 1
     if [[ ${3:-} == *,disable ]]; then
       monitor_name=${3%,disable}
-      jq --arg name "$monitor_name" '[.[] | select(.name != $name)]' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
-      mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+      if [[ $monitor_name != "${HYPR_MOCK_KEYWORD_NOOP_NAME:-}" ]]; then
+        jq --arg name "$monitor_name" '[.[] | select(.name != $name)]' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
+        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
+      fi
     elif [[ ${3:-} == DP-1,* || ${3:-} == HDMI-A-1,* ]]; then
       IFS=, read -r monitor_name mode position scale transform <<< "$3"
       resolution=${mode%@*}
@@ -130,20 +132,37 @@ jq -e 'length == 0' "$HYPR_MOCK_STATE" >/dev/null
 [[ ! -e $STATE_DIR/state ]] || { echo "State was not removed after final stop" >&2; exit 1; }
 echo "PASS Hyprland native lifecycle and reference counting"
 
-printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HEADLESS-1","description":"Headless monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
+printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0},{"name":"HEADLESS-1","description":"Headless monitor","width":1920,"height":1080,"refreshRate":60,"x":4480,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
 "$START"
 jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "DP-1")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not disabled selectively" >&2; exit 1; }
 grep -q 'keyword monitor DP-1,disable' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output disable command was not issued" >&2; exit 1; }
+grep -q 'keyword monitor HDMI-A-1,disable' "$HYPR_MOCK_CALLS" \
+  || { echo "Physical output without a description was not disabled" >&2; exit 1; }
 "$STOP"
-jq -e 'length == 2 and any(.[]; .name == "DP-1") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "sunshine-vmon")' \
+jq -e 'length == 3 and any(.[]; .name == "DP-1") and any(.[]; .name == "HDMI-A-1") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "sunshine-vmon")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not restored" >&2; exit 1; }
 grep -q 'keyword monitor DP-1,2560x1440@59.95,0x0,1,0' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output mode was not restored" >&2; exit 1; }
+grep -q 'keyword monitor HDMI-A-1,1920x1080@60,2560x0,1,0' "$HYPR_MOCK_CALLS" \
+  || { echo "Physical output without a description was not restored" >&2; exit 1; }
 printf '[]\n' > "$HYPR_MOCK_STATE"
 echo "PASS Hyprland physical output suspend and restore"
+
+printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0}]\n' \
+  > "$HYPR_MOCK_STATE"
+if HYPR_MOCK_KEYWORD_NOOP_NAME=DP-1 "$START" >/dev/null 2>&1; then
+  echo "Silent physical-output disable failure was not detected" >&2
+  exit 1
+fi
+jq -e 'length == 1 and .[0].name == "DP-1"' "$HYPR_MOCK_STATE" >/dev/null \
+  || { echo "Silent disable failure did not roll back cleanly" >&2; exit 1; }
+[[ ! -e $STATE_DIR/state && ! -e $STATE_DIR/physical-monitors.json ]] \
+  || { echo "Silent disable failure left active lifecycle state behind" >&2; exit 1; }
+printf '[]\n' > "$HYPR_MOCK_STATE"
+echo "PASS Hyprland silent physical-output disable failure"
 
 printf '[{"name":"DP-1","description":"DP-1 Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"HDMI-A-1 Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
