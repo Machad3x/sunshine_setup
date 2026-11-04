@@ -271,10 +271,18 @@ print_desktop_options() {
         else
           echo "    Virtual Monitor: requires KDE Plasma on Wayland (current session: ${XDG_SESSION_TYPE:-unknown})"
         fi
+        if (( UNSUPPORTED_DISTRO || IMMUTABLE )); then
+          echo "    ${dim}Host packages required for the virtual monitor: krfb, libkscreen and jq.${normal}"
+          echo "    ${dim}They are not installed automatically; install them with the system's package manager.${normal}"
+        fi
         echo "    Error 503 fix: available, intended for KDE Plasma (Wayland)"
         ;;
       hyprland)
         echo "    Virtual Monitor: Hyprland (Wayland)"
+        if (( UNSUPPORTED_DISTRO || IMMUTABLE )); then
+          echo "    ${dim}Host packages required for the virtual monitor: jq and util-linux (flock).${normal}"
+          echo "    ${dim}They are not installed automatically; install them with the system's package manager.${normal}"
+        fi
         echo "    Error 503 fix: available, but intended for KDE Plasma (Wayland)"
         ;;
     esac
