@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.3.0] - 2026-11-04
+
+### Changed
+- The Hyprland backend targets the current compositor only: monitor configuration now goes exclusively through `hyprctl eval` / `hl.monitor`. The `hyprctl keyword monitor` fallback was removed — on Hyprland 0.55+ with the Lua config it errors or silently no-ops, so it could no longer serve as a safety net.
+- The migration from the pre-3.1 lifecycle state files (`references`/`owned`) was dropped; the runtime state is the `state` file only, and the final cleanup also unlinks the `lock` file so the state directory can be removed.
+
+### Fixed
+- Disabling and restoring physical outputs on Lua-configured Hyprland (0.55/0.56) now reliably works, because the keyword path that silently no-oped there is gone.
+
+### Added
+- The Hyprland test double has no `keyword` branch anymore, so any regression that reintroduces a keyword call fails the suite loudly; new coverage for configure-failure rollback with a custom client FPS.
+
 ## [3.2.0] - 2026-11-04
 
 ### Fixed
