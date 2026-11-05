@@ -33,11 +33,8 @@ monitor_exists() {
 
 configure_monitor() {
   local result
-  if result=$(hyprctl eval "hl.monitor({ output = \"$NAME\", mode = \"$RES\", position = \"9999x0\", scale = 1 })" 2>/dev/null) \
-      && [[ $result == ok ]]; then
-    return 0
-  fi
-  hyprctl keyword monitor "$NAME,$RES,9999x0,1" >/dev/null
+  result=$(hyprctl eval "hl.monitor({ output = \"$NAME\", mode = \"$RES\", position = \"9999x0\", scale = 1 })" 2>/dev/null) \
+      && [[ $result == ok ]]
 }
 
 cleanup_partial_start() {
@@ -84,19 +81,12 @@ if [[ -f $STATE_DIR/state ]]; then
   [[ ${#local_state[@]} == 2 ]] || { echo "Invalid Hyprland virtual-monitor state." >&2; exit 1; }
   REFS=${local_state[0]}
   OWNED=${local_state[1]}
-else
-  if [[ -f $STATE_DIR/references ]]; then
-    IFS= read -r REFS < "$STATE_DIR/references" || true
-  fi
-  if [[ -f $STATE_DIR/owned ]]; then
-    IFS= read -r OWNED < "$STATE_DIR/owned" || true
-  fi
 fi
 [[ $REFS =~ ^[0-9]+$ ]] || { echo "Invalid Hyprland virtual-monitor reference state." >&2; exit 1; }
 [[ $OWNED == 0 || $OWNED == 1 ]] || { echo "Invalid Hyprland virtual-monitor ownership state." >&2; exit 1; }
 
 if (( REFS == 0 )); then
-  if [[ -e $STATE_DIR/owned || $OWNED == 1 || -e $PHYSICAL_STATE ]]; then
+  if [[ $OWNED == 1 || -e $PHYSICAL_STATE ]]; then
     echo "A stale Hyprland virtual-monitor state exists; remove it before starting again." >&2
     exit 1
   fi
@@ -149,5 +139,3 @@ if (( REFS == 0 )); then
   hypr_vmon_apply_physical_monitors disable "$PHYSICAL_STATE"
 fi
 STATE_COMMITTED=1
-rm -f -- "$STATE_DIR/references" "$STATE_DIR/owned" \
-  || echo "Warning: legacy Hyprland virtual-monitor state files could not be removed." >&2

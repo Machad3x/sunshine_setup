@@ -98,6 +98,8 @@ hypr_vmon_wait_for_output() {
 
 hypr_vmon_set_monitor() {
   local name=$1 mode=$2 position=$3 scale=$4 transform=$5 result command
+  # Hyprland >= 0.55 with the Lua config rejects or silently no-ops keyword
+  # monitor; hl.monitor via hyprctl eval is the supported runtime API.
   if [[ $mode == disable ]]; then
     printf -v command 'hl.monitor({ output = "%s", disabled = true })' "$name"
   else
@@ -105,20 +107,7 @@ hypr_vmon_set_monitor() {
       'hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s, transform = %s, disabled = false })' \
       "$name" "$mode" "$position" "$scale" "$transform"
   fi
-
-  if result=$(hyprctl eval "$command" 2>/dev/null) && [[ $result == ok ]]; then
-    return 0
-  fi
-
-  if [[ $mode == disable ]]; then
-    result=$(hyprctl keyword monitor "$name,disable" 2>/dev/null) || return 1
-  else
-    result=$(hyprctl keyword monitor "$name,$mode,$position,$scale,$transform" 2>/dev/null) || return 1
-  fi
-  if [[ $result == ok ]]; then
-    return 0
-  fi
-  return 1
+  result=$(hyprctl eval "$command" 2>/dev/null) && [[ $result == ok ]]
 }
 
 hypr_vmon_apply_physical_monitors() {

@@ -60,7 +60,7 @@ The installer reads `/etc/os-release`: it prefers the exact distribution `ID`, t
 - **Required Packages**:
   - `jq`
 - **KDE**: `krfb-virtualmonitor` (provided by `krfb`) and `kscreen-doctor` (provided by `libkscreen` on Fedora/Arch, `libkscreen-bin` on Debian/Ubuntu).
-- **Hyprland**: `hyprctl` (provided by Hyprland) and `flock` (provided by `util-linux`); run setup from an active Hyprland session.
+- **Hyprland**: `hyprctl` (provided by Hyprland — the current `hyprctl eval` / `hl.monitor` API is required, matching recent Hyprland releases) and `flock` (provided by `util-linux`); run setup from an active Hyprland session.
 - **Unrecognized distributions**: host packages required by the virtual monitor must be installed manually with the distro's package manager. KDE requires `krfb`, `libkscreen`, and `jq`; Hyprland requires `jq` and `util-linux` (and an active Hyprland session).
 - *Immutable Systems Note*: The virtual-monitor tools must be available on the host. For KDE, install `krfb`, `libkscreen`, and `jq`; for Hyprland, install `jq` (`hyprctl` comes with Hyprland and `flock` with `util-linux`). On rpm-ostree systems:
   ```bash

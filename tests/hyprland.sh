@@ -42,7 +42,6 @@ case ${1:-} in
   eval)
     printf '%s\n' "$2" >> "$HYPR_MOCK_CALLS"
     printf '%s' "${WAYLAND_DISPLAY:-}" > "$HYPR_MOCK_ENV"
-    [[ ${HYPR_MOCK_EVAL_FAIL:-0} == 1 ]] && exit 1
     if [[ $2 =~ output[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
       monitor_name=${BASH_REMATCH[1]}
       if [[ $2 =~ disabled[[:space:]]*=[[:space:]]*true ]]; then
@@ -53,7 +52,8 @@ case ${1:-} in
         mode=""
       fi
       if [[ -n $mode ]]; then
-        if [[ $monitor_name == "${HYPR_MOCK_EVAL_FAIL_NAME:-}" ]]; then
+        if [[ $monitor_name == "${HYPR_MOCK_EVAL_FAIL_NAME:-}" ]] \
+            && ! [[ $2 =~ disabled[[:space:]]*=[[:space:]]*false ]]; then
           exit 1
         elif [[ $mode == disable ]]; then
           if [[ $monitor_name != "${HYPR_MOCK_EVAL_NOOP_NAME:-}" ]]; then
@@ -90,38 +90,8 @@ case ${1:-} in
     fi
     printf 'ok\n'
     ;;
-  keyword)
-    printf 'keyword %s\n' "$*" >> "$HYPR_MOCK_CALLS"
-    [[ ${HYPR_MOCK_KEYWORD_FAIL:-0} == 1 ]] && exit 1
-    [[ ${3:-} == *,disable && ${3%,disable} == "${HYPR_MOCK_KEYWORD_FAIL_NAME:-}" ]] && exit 1
-    if [[ ${3:-} == *,disable ]]; then
-      monitor_name=${3%,disable}
-      if [[ $monitor_name != "${HYPR_MOCK_KEYWORD_NOOP_NAME:-}" ]]; then
-        jq --arg name "$monitor_name" '[.[] | select(.name != $name)]' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
-        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
-      fi
-    elif [[ ${3:-} == DP-1,* || ${3:-} == HDMI-A-1,* ]]; then
-      IFS=, read -r monitor_name mode position scale transform <<< "$3"
-      resolution=${mode%@*}
-      refresh=${mode#*@}
-      width=${resolution%x*}
-      height=${resolution#*x}
-      x=${position%x*}
-      y=${position#*x}
-      if [[ $monitor_name == "${HYPR_MOCK_KEYWORD_RESTORE_FAIL_NAME:-}" ]]; then
-        jq --arg name "$monitor_name" 'map(select(.name != $name))' "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
-        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
-      else
-        jq --arg name "$monitor_name" --argjson width "$width" --argjson height "$height" \
-          --argjson refresh "$refresh" --argjson x "$x" --argjson y "$y" \
-          --argjson scale "$scale" --argjson transform "$transform" \
-          'map(select(.name != $name)) + [{name:$name,description:($name + " Physical Monitor"),width:$width,height:$height,refreshRate:$refresh,x:$x,y:$y,scale:$scale,transform:$transform}]' \
-          "$HYPR_MOCK_STATE" > "$HYPR_MOCK_STATE.tmp"
-        mv "$HYPR_MOCK_STATE.tmp" "$HYPR_MOCK_STATE"
-      fi
-    fi
-    printf 'ok\n'
-    ;;
+  # No keyword branch on purpose: keyword monitor is unsupported by modern
+  # Hyprland (Lua config), so any call falls through to *) and fails the tests.
   *) printf 'Unexpected hyprctl args: %s\n' "$*" >&2; exit 2 ;;
 esac
 MOCK
@@ -203,26 +173,22 @@ echo "PASS Hyprland current monitor API suspend and restore"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0},{"name":"HEADLESS-1","description":"Headless monitor","width":1920,"height":1080,"refreshRate":60,"x":4480,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-HYPR_MOCK_EVAL_FAIL=1 "$START"
+"$START"
 jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "DP-1")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not disabled selectively" >&2; exit 1; }
 grep -q 'hl.monitor({ output = "DP-1", disabled = true })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output disable command was not issued" >&2; exit 1; }
 grep -q 'hl.monitor({ output = "HDMI-A-1", disabled = true })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not disabled" >&2; exit 1; }
-grep -q 'keyword monitor DP-1,disable' "$HYPR_MOCK_CALLS" \
-  || { echo "Legacy physical output disable fallback was not used" >&2; exit 1; }
-HYPR_MOCK_EVAL_FAIL=1 "$STOP"
+"$STOP"
 jq -e 'length == 3 and any(.[]; .name == "DP-1") and any(.[]; .name == "HDMI-A-1") and any(.[]; .name == "HEADLESS-1") and all(.[]; .name != "sunshine-vmon")' \
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Physical output was not restored" >&2; exit 1; }
 grep -q 'hl.monitor({ output = "DP-1", mode = "2560x1440@59.95", position = "0x0", scale = 1, transform = 0, disabled = false })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output mode was not restored" >&2; exit 1; }
 grep -q 'hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "2560x0", scale = 1, transform = 0, disabled = false })' "$HYPR_MOCK_CALLS" \
   || { echo "Physical output without a description was not restored" >&2; exit 1; }
-grep -q 'keyword monitor DP-1,2560x1440@59.95,0x0,1,0' "$HYPR_MOCK_CALLS" \
-  || { echo "Legacy physical output restore fallback was not used" >&2; exit 1; }
 printf '[]\n' > "$HYPR_MOCK_STATE"
-echo "PASS Hyprland physical output suspend and restore"
+echo "PASS Hyprland multi-monitor suspend, headless filtering and restore"
 
 printf '[{"name":"DP-1","description":"Dell Inc. Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"Dell Inc. Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
@@ -235,7 +201,7 @@ jq -e 'length == 2 and any(.[]; .name == "sunshine-vmon") and any(.[]; .name == 
   "$HYPR_MOCK_STATE" >/dev/null || { echo "Failed restore left the physical monitor state inconsistent" >&2; exit 1; }
 [[ -e $STATE_DIR/state && -e $STATE_DIR/physical-monitors.json ]] \
   || { echo "Failed restore did not leave state intact for recovery" >&2; exit 1; }
-rm -f -- "$STATE_DIR/state" "$STATE_DIR/physical-monitors.json" "$STATE_DIR/references" "$STATE_DIR/owned"
+rm -f -- "$STATE_DIR/state" "$STATE_DIR/physical-monitors.json" "$STATE_DIR/lock"
 rmdir "$STATE_DIR" 2>/dev/null || true
 printf '[]\n' > "$HYPR_MOCK_STATE"
 echo "PASS Hyprland physical-output restore verification"
@@ -255,8 +221,7 @@ echo "PASS Hyprland silent physical-output disable failure"
 
 printf '[{"name":"DP-1","description":"DP-1 Physical Monitor","width":2560,"height":1440,"refreshRate":59.95,"x":0,"y":0,"scale":1,"transform":0},{"name":"HDMI-A-1","description":"HDMI-A-1 Physical Monitor","width":1920,"height":1080,"refreshRate":60,"x":2560,"y":0,"scale":1,"transform":0}]\n' \
   > "$HYPR_MOCK_STATE"
-if HYPR_MOCK_EVAL_FAIL_NAME=HDMI-A-1 HYPR_MOCK_KEYWORD_FAIL_NAME=HDMI-A-1 \
-    "$START" >/dev/null 2>&1; then
+if HYPR_MOCK_EVAL_FAIL_NAME=HDMI-A-1 "$START" >/dev/null 2>&1; then
   echo "Partial physical-output disable failure was ignored" >&2
   exit 1
 fi
@@ -270,33 +235,17 @@ jq -e 'length == 2 and any(.[]; .name == "DP-1") and any(.[]; .name == "HDMI-A-1
 printf '[]\n' > "$HYPR_MOCK_STATE"
 echo "PASS Hyprland failed-start physical output rollback"
 
-printf '[{"name":"sunshine-vmon"}]\n' > "$HYPR_MOCK_STATE"
-printf '1\n' > "$STATE_DIR/references"
-printf '1\n' > "$STATE_DIR/owned"
-"$START"
-[[ $(sed -n '1p' "$STATE_DIR/state") == 2 && $(sed -n '2p' "$STATE_DIR/state") == 1 ]] \
-  || { echo "Legacy lifecycle state was not migrated" >&2; exit 1; }
-[[ ! -e $STATE_DIR/references && ! -e $STATE_DIR/owned ]] \
-  || { echo "Legacy lifecycle state files were not removed" >&2; exit 1; }
-"$STOP"
-"$STOP"
-jq -e 'length == 0' "$HYPR_MOCK_STATE" >/dev/null
-echo "PASS Hyprland legacy state migration"
-
-HYPR_MOCK_EVAL_FAIL=1 SUNSHINE_CLIENT_WIDTH=1920 SUNSHINE_CLIENT_HEIGHT=1080 \
-  SUNSHINE_CLIENT_FPS=75 "$START"
-grep -q 'keyword keyword monitor sunshine-vmon,1920x1080@75,9999x0,1' "$HYPR_MOCK_CALLS" \
-  || { echo "Keyword fallback or custom FPS failed" >&2; exit 1; }
-"$STOP"
-
-if HYPR_MOCK_EVAL_FAIL=1 HYPR_MOCK_KEYWORD_FAIL=1 "$START" >/dev/null 2>&1; then
+if SUNSHINE_CLIENT_WIDTH=1920 SUNSHINE_CLIENT_HEIGHT=1080 SUNSHINE_CLIENT_FPS=75 \
+    HYPR_MOCK_EVAL_FAIL_NAME=sunshine-vmon "$START" >/dev/null 2>&1; then
   echo "Monitor configuration failure was ignored" >&2
   exit 1
 fi
+grep -q 'hl.monitor({ output = "sunshine-vmon", mode = "1920x1080@75", position = "9999x0", scale = 1 })' "$HYPR_MOCK_CALLS" \
+  || { echo "Custom client FPS was not requested via eval" >&2; exit 1; }
 jq -e 'length == 0' "$HYPR_MOCK_STATE" >/dev/null \
   || { echo "Failed start left a headless output behind" >&2; exit 1; }
 [[ ! -e $STATE_DIR/state ]] || { echo "Failed start committed reference state" >&2; exit 1; }
-echo "PASS Hyprland fallback and failed-start cleanup"
+echo "PASS Hyprland configure-failure cleanup and custom FPS"
 
 printf '[{"name":"sunshine-vmon"}]\n' > "$HYPR_MOCK_STATE"
 if "$START" >/dev/null 2>&1; then

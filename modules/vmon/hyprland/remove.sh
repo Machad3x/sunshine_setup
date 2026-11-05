@@ -27,9 +27,6 @@ remove_vmon_hyprland() {
   if [[ -f $runtime_state/state ]]; then
     IFS= read -r refs < "$runtime_state/state" || true
     [[ $refs =~ ^[0-9]+$ ]] || refs=1
-  elif [[ -f $runtime_state/references ]]; then
-    IFS= read -r refs < "$runtime_state/references" || true
-    [[ $refs =~ ^[0-9]+$ ]] || refs=1
   fi
   if (( refs > 0 )); then
     echo "  An active Sunshine session still uses the Hyprland scripts; they were kept for its undo hook."
