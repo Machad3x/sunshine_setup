@@ -28,7 +28,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
   - KDE provisions its display using `krfb-virtualmonitor` and `kscreen-doctor`.
   - Hyprland creates a headless output with `hyprctl` only for the Sunshine app session, then removes it after capture ends.
   - Hyprland temporarily disables physical displays during capture, confirms they are inactive, and restores their previous mode, position, scale, and transform when the session ends.
-  - Hyprland lifecycle hooks are maintained as standalone scripts and clean up a newly created output when startup fails.
+  - Lifecycle hooks for both backends are maintained as standalone scripts (installed under `~/.local/bin`), and the start hooks roll back a newly created monitor/output when startup fails.
   - Both backends match the client resolution and frame rate (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS) when their virtual-monitor Sunshine app is launched; the Hyprland backend configures Sunshine for `wlr` capture.
 - **Troubleshooting & Utility Actions**:
   - **Error 503 Fix**: Adds `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` in a dedicated environment file; `503-reset` removes the setting.
@@ -42,7 +42,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 | Distribution Type | Supported Systems / Distros | Allowed Installation Method |
 | :--- | :--- | :--- |
 | **Traditional Systems** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian 13 (trixie) | Native Package **or** Flatpak |
-| **Flatpak Only** | Debian 12 and earlier, and Debian 14+ | Flatpak (`--system` / `--user`) |
+| **Flatpak Only** | All other Debian releases (12 and earlier, 14+) | Flatpak (`--system` / `--user`) |
 | **Immutable / Atomic** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Flatpak Only** (`--system` / `--user`) |
 | **Unsupported Distributions** | Other distributions not recognized by `ID` or `ID_LIKE` | Flatpak only, best-effort; failures are possible |
 
@@ -101,8 +101,8 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh 503` | Apply the Error 503 fix directly. |
 | `./sunshine-setup.sh 503-reset` | Revert the Error 503 fix directly. |
 | `./sunshine-setup.sh firewall` | Configure firewall rules for `firewalld` or `ufw`. |
-| `./sunshine-setup.sh service` | Open the Sunshine service control menu. |
-| `./sunshine-setup.sh start|stop|restart|enable|disable|status|logs|follow [--native|--flatpak]` | Control or inspect the Sunshine user service. |
+| `./sunshine-setup.sh service [--native\|--flatpak]` | Open the Sunshine service control menu (the scope flag skips mode detection). |
+| `./sunshine-setup.sh start\|stop\|restart\|enable\|disable\|status\|logs\|follow [--native\|--flatpak]` | Control or inspect the Sunshine user service. |
 | `./sunshine-setup.sh repair [--native|--flatpak]` | Repair Sunshine service startup configuration. |
 | `./sunshine-setup.sh --help` | Display script usage notes and options. |
 | `./sunshine-setup.sh --version` | Display the script version. |
@@ -130,7 +130,7 @@ To enable dynamic virtual resolution streaming with Moonlight:
 
 The KDE backend remembers enabled physical displays and restores them and the prior `output_name` when the virtual-monitor app session ends. The Hyprland backend creates the named headless output for the app's capture session, configures its mode from Moonlight's requested resolution and frame rate, temporarily disables physical displays, verifies each is inactive before capture continues, and restores their previous mode, position, scale, and transform when the session ends. It removes only an output it created. Its standalone start hook rolls back an output created during an unsuccessful startup. Removing the configuration restores the previous `capture` and `output_name` settings.
 
-The Hyprland backend must be configured from an active Hyprland session. Its configuration can be removed later from any supported desktop session; the remover detects which backend is configured.
+The Hyprland backend must be configured from an active Hyprland session. Its configuration can be removed later from any supported desktop session; removal detects which backend is configured.
 
 ---
 
@@ -142,7 +142,7 @@ Run the portable test suite with Bash and `jq` installed:
 bash tests/run.sh
 ```
 
-The suite covers distro and desktop selection, CIDR validation, service and Error 503 helpers, and native/Flatpak Hyprland hook behavior using a stateful `hyprctl` test double. It does not replace testing capture and headless outputs in a live Hyprland session.
+The suite covers distro and desktop selection, CIDR validation, service and Error 503 helpers, and native/Flatpak Hyprland and KDE hook behavior using stateful test doubles. `tests/run.sh` also runs `tests/cli-smoke.sh` (end-to-end checks of the real script in a sandboxed HOME) when not running as root. CI additionally lints every script with ShellCheck and re-runs the suite in bash 4.4 and 5.0 containers. It does not replace testing capture and headless outputs in a live Hyprland session.
 
 ---
 

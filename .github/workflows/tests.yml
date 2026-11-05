@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  tests:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +22,27 @@ jobs:
             sudo apt-get install -y shellcheck
           fi
           find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -x -S warning
+
+      - name: Test suite
+        run: bash tests/run.sh
+
+  bash-versions:
+    name: bash ${{ matrix.bash }}
+    runs-on: ubuntu-latest
+    container:
+      image: bash:${{ matrix.bash }}
+    strategy:
+      fail-fast: false
+      matrix:
+        bash: ["4.4", "5.0"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: >
+          apt-get update &&
+          apt-get install -y --no-install-recommends
+          jq coreutils findutils grep sed mawk
 
       - name: Test suite
         run: bash tests/run.sh

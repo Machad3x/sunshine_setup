@@ -28,12 +28,12 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
   - KDE cria a tela virtual usando `krfb-virtualmonitor` e `kscreen-doctor`.
   - Hyprland cria uma saída headless com `hyprctl` somente durante a sessão do app Sunshine e a remove ao terminar a captura.
   - Durante a captura, Hyprland desativa temporariamente as telas físicas, confirma que ficaram inativas e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão.
-  - Os hooks do Hyprland são scripts independentes e limpam uma saída recém-criada caso a inicialização falhe.
+  - Os hooks de ciclo de vida dos dois backends são mantidos como scripts independentes (instalados em `~/.local/bin`) e desfazem um monitor/saída recém-criado caso a inicialização falhe.
   - Ambos ajustam resolução e taxa de quadros conforme o cliente (SUNSHINE_CLIENT_WIDTH / HEIGHT / FPS) quando o app de monitor virtual do Sunshine é iniciado; o backend Hyprland configura a captura `wlr`.
 - **Correções e Ferramentas de Manutenção**:
   - **Correção do Erro 503**: Adiciona `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` em um arquivo dedicado; `503-reset` remove a configuração.
   - **Configuração de Firewall**: Detecta `firewalld` ou `ufw` e libera as portas necessárias para streaming e mDNS, com opção de restringir a um CIDR IPv4/IPv6.
-  - **Desinstalação Limpa**: Remove scripts de monitor virtual, ganchos pós-execução do systemd e configurações da aplicação Sunshine.
+  - **Desinstalação Limpa**: Remove scripts do monitor virtual, hooks de pós-execução do systemd e configurações da aplicação Sunshine.
 
 ---
 
@@ -42,7 +42,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 | Tipo de Distribuição | Distribuições / Sistemas Suportados | Método de Instalação Permitido |
 | :--- | :--- | :--- |
 | **Distribuições Tradicionais** | Fedora, Arch Linux, CachyOS, Ubuntu, Debian 13 (trixie) | Pacote Nativo **ou** Flatpak |
-| **Somente Flatpak** | Debian 12 e anteriores, e Debian 14+ | Flatpak (`--system` / `--user`) |
+| **Somente Flatpak** | Todas as outras versões do Debian (12 e anteriores, 14+) | Flatpak (`--system` / `--user`) |
 | **Imutáveis / Atômicas** | Bazzite, Silverblue, Kinoite, SteamOS, Bluefin, Aurora, openSUSE MicroOS | **Apenas Flatpak** (`--system` / `--user`) |
 | **Distribuições Não Suportadas** | Outras distribuições não reconhecidas por `ID` ou `ID_LIKE` | Somente Flatpak, sem garantia; podem ocorrer falhas |
 
@@ -56,7 +56,7 @@ O instalador lê `/etc/os-release`: prioriza o `ID` exato da distribuição; se 
 - **Usuário Padrão**: Execute o script como usuário comum (evite usar `sudo bash ...`). O script solicitará elevação de privilégios (`sudo`) apenas quando estritamente necessário.
 
 ### Requisitos para Monitor Virtual (Opção 2)
-- **Ambiente de Trabalho**: KDE Plasma ou Hyprland (Wayland).
+- **Ambiente de Trabalho**: KDE Plasma (Wayland) ou Hyprland (Wayland).
 - **Pacotes Necessários**:
   - `jq`
 - **KDE**: `krfb-virtualmonitor` (pacote `krfb`) e `kscreen-doctor` (pacote `libkscreen` no Fedora/Arch, `libkscreen-bin` no Debian/Ubuntu).
@@ -101,8 +101,8 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh 503` | Aplica diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh 503-reset` | Reverte diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
-| `./sunshine-setup.sh service` | Abre o menu de controle do serviço Sunshine. |
-| `./sunshine-setup.sh start|stop|restart|enable|disable|status|logs|follow [--native|--flatpak]` | Controla ou consulta o serviço de usuário do Sunshine. |
+| `./sunshine-setup.sh service [--native\|--flatpak]` | Abre o menu de controle do serviço Sunshine (o escopo dispensa a detecção de modo). |
+| `./sunshine-setup.sh start\|stop\|restart\|enable\|disable\|status\|logs\|follow [--native\|--flatpak]` | Controla ou consulta o serviço de usuário do Sunshine. |
 | `./sunshine-setup.sh repair [--native|--flatpak]` | Repara a configuração de inicialização do serviço Sunshine. |
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
 | `./sunshine-setup.sh --version` | Exibe a versão do script. |
@@ -130,7 +130,7 @@ Para habilitar a troca dinâmica de resolução durante o streaming com o Moonli
 
 O backend KDE registra quais telas físicas estavam habilitadas e restaura essas telas e o `output_name` original ao encerrar a sessão do app de monitor virtual. O backend Hyprland cria a saída headless para a sessão de captura do app, ajusta o modo conforme a resolução e a taxa de quadros pedidas pelo Moonlight, desativa temporariamente as telas físicas, confirma que cada uma ficou inativa antes de continuar a captura e restaura modo, posição, escala e transformação anteriores ao encerrar a sessão. Ele remove somente a saída criada por si. O hook de início independente desfaz a criação de uma saída caso a inicialização falhe. Ao remover a configuração, restaura os valores anteriores de `capture` e `output_name`.
 
-A configuração do Hyprland deve ser feita em uma sessão Hyprland ativa. Ela pode ser removida depois a partir de qualquer desktop compatível; o removedor identifica qual backend está configurado.
+A configuração do Hyprland deve ser feita em uma sessão Hyprland ativa. Ela pode ser removida depois a partir de qualquer desktop compatível; a remoção identifica qual backend está configurado.
 
 ---
 
@@ -142,7 +142,7 @@ Execute a suíte portátil com Bash e `jq` instalados:
 bash tests/run.sh
 ```
 
-A suíte cobre seleção de distribuição e desktop, validação de CIDR, helpers do serviço e do Erro 503, e os hooks nativos/Flatpak do Hyprland com um `hyprctl` de teste com estado. Ela não substitui testes de captura e saída headless em uma sessão Hyprland real.
+A suíte cobre seleção de distribuição e desktop, validação de CIDR, helpers do serviço e do Erro 503, e os hooks nativos/Flatpak do Hyprland e do KDE com dublês de teste (*test doubles*) com estado. O `tests/run.sh` também executa o `tests/cli-smoke.sh` (verificações de ponta a ponta do script real com HOME isolado) quando não roda como root. O CI ainda faz lint de todos os scripts com ShellCheck e roda a suíte em containers bash 4.4 e 5.0. Ela não substitui testes de captura e saída headless em uma sessão Hyprland real.
 
 ---
 

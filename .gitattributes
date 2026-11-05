@@ -1,1 +1,4 @@
-*.sh text eol=lf
+*          text=auto eol=lf
+*.sh       text eol=lf
+*.md       text eol=lf
+LICENSE    text eol=lf
