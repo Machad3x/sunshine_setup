@@ -140,11 +140,13 @@ exec "$@"
 MOCK
 chmod 755 "$TMP/bin/hyprctl" "$TMP/bin/flatpak-spawn"
 
+source "$ROOT/modules/common.sh"
 source "$ROOT/modules/vmon/hyprland/common.sh"
 source "$ROOT/modules/vmon/hyprland/add.sh"
 source "$ROOT/modules/vmon/hyprland/remove.sh"
 red='' normal='' bold='' IMMUTABLE=0
 TEMP_FILES=()
+BIN_DIR=$HOME/.local/bin
 SCRIPT_DIR=$ROOT
 TEST_MODE=native
 pick_mode() {

@@ -99,9 +99,36 @@ grep -q 'Virtual Monitor: KDE Plasma' "$TEST_HOME/unsupported-install.log" \
   || fail "desktop-specific options were not shown"
 if install_native >/dev/null 2>&1; then fail "native installation was allowed on unsupported distro"; fi
 echo "PASS unsupported distro Flatpak options"
+source "$ROOT/modules/common.sh"   # restore the real choose() after the scenario stub
 source "$ROOT/modules/install.sh"
+if action_install --bogus >/dev/null 2>&1; then fail "unknown install flag was accepted"; fi
+action_install --bogus 2>"$TEST_HOME/install-bogus.log" || true
+grep -q 'Unknown install option' "$TEST_HOME/install-bogus.log" \
+  || fail "unknown install flag did not report the problem"
+UNSUP_RC=0; action_install --bogus >/dev/null 2>&1 || UNSUP_RC=$?
+(( UNSUP_RC == 2 )) || fail "unknown install flag returned $UNSUP_RC, expected 2"
 UNSUPPORTED_DISTRO=0
 DISTRO=debian
+
+got=$(ID=ubuntu VERSION_ID=24.04 ubuntu_version)
+[[ $got == 24.04 ]] || fail "ubuntu VERSION_ID passthrough failed ($got)"
+got=$(ID=ubuntu VERSION_ID=22.04.4 UBUNTU_CODENAME=jammy ubuntu_version)
+[[ $got == 22.04 ]] || fail "invalid VERSION_ID should fall back to codename ($got)"
+got=$(ID=pop VERSION_ID=22.04.5 UBUNTU_CODENAME=jammy ubuntu_version)
+[[ $got == 22.04 ]] || fail "derivative should use UBUNTU_CODENAME ($got)"
+got=$(ID=pop VERSION_ID=24.10 UBUNTU_CODENAME=oracular ubuntu_version)
+[[ $got == 24.10 ]] || fail "oracular mapping failed ($got)"
+got=$(ID=pop VERSION_ID=25.10 UBUNTU_CODENAME=questing ubuntu_version)
+[[ $got == 25.10 ]] || fail "questing mapping failed ($got)"
+got=$(ID=pop VERSION_ID=26.04 UBUNTU_CODENAME=resolute ubuntu_version)
+[[ $got == 26.04 ]] || fail "resolute mapping failed ($got)"
+got=$(ID=pop VERSION_ID=26.10 UBUNTU_CODENAME=stonking ubuntu_version)
+[[ $got == 26.10 ]] || fail "stonking mapping failed ($got)"
+got=$(ID=ubuntu VERSION_ID=26.10 ubuntu_version)
+[[ $got == 26.10 ]] || fail "Ubuntu 26.10 VERSION_ID passthrough failed ($got)"
+got=$(ID=debian VERSION_ID=13 UBUNTU_CODENAME= ubuntu_version)
+[[ -z $got ]] || fail "non-Ubuntu should return empty ($got)"
+echo "PASS Ubuntu release mapping"
 
 FIREWALL_LOG="$TEST_HOME/firewall.log"
 firewall-cmd() { :; }
@@ -140,6 +167,9 @@ if open_firewall <<< "not-a-cidr" >/dev/null 2>&1; then fail "invalid firewall C
 echo "PASS firewall source restriction and invalid-input protection"
 
 INSTALL_LOG="$TEST_HOME/flatpak.log"
+# New scenario: install_flatpak calls systemctl heavily; the firewall mock
+# above deliberately fails everything but the firewalld probe, so replace it.
+systemctl() { return 0; }
 flatpak() {
   printf '%s\n' "$*" >> "$INSTALL_LOG"
   if [[ ${1:-} == install ]]; then
@@ -200,6 +230,39 @@ reset_503 >/dev/null
   || fail "Error 503 reset did not preserve unrelated settings"
 echo "PASS service drop-ins and Error 503 settings"
 
+if (( EUID != 0 )); then
+  # reset_503 keeps the file (it holds foreign settings); remove it so the
+  # next fix_503 run takes the create path and hits the write guard.
+  rm -f "$HOME/.config/environment.d/98-sunshine-setup-503.conf"
+  chmod 500 "$HOME/.config/environment.d"
+  if fix_503 >"$TEST_HOME/503-ro.log" 2>&1; then
+    chmod 700 "$HOME/.config/environment.d"
+    fail "Error 503 fix wrote into an unwritable directory"
+  fi
+  chmod 700 "$HOME/.config/environment.d"
+  grep -q 'Could not write' "$TEST_HOME/503-ro.log" \
+    || fail "Error 503 fix did not report the write failure"
+  echo "PASS Error 503 unwritable-directory protection"
+fi
+
+# fix_503 must refuse to overwrite a pre-existing file that lacks the setting.
+printf 'OTHER=1\n' > "$HOME/.config/environment.d/98-sunshine-setup-503.conf"
+if fix_503 >"$TEST_HOME/503-exists.log" 2>&1; then fail "fix_503 overwrote a pre-existing config file"; fi
+grep -q 'Refusing to overwrite' "$TEST_HOME/503-exists.log" \
+  || fail "fix_503 did not report the refusal"
+grep -Fxq 'OTHER=1' "$HOME/.config/environment.d/98-sunshine-setup-503.conf" \
+  || fail "fix_503 modified the file it refused to overwrite"
+
+# reset_503 must clean the current and the legacy file in one run.
+printf 'KWIN_WAYLAND_NO_PERMISSION_CHECKS=1\n' > "$HOME/.config/environment.d/98-kwin-no-permission-checks.conf"
+printf 'KEEP=1\nKWIN_WAYLAND_NO_PERMISSION_CHECKS=1\n' > "$HOME/.config/environment.d/98-sunshine-setup-503.conf"
+reset_503 >/dev/null
+[[ ! -e "$HOME/.config/environment.d/98-kwin-no-permission-checks.conf" ]] \
+  || fail "legacy file holding only the setting was not removed"
+[[ $(<"$HOME/.config/environment.d/98-sunshine-setup-503.conf") == 'KEEP=1' ]] \
+  || fail "reset_503 did not clean both current and legacy files"
+echo "PASS Error 503 overwrite protection and legacy reset"
+
 SYSTEMCTL_LOG=$(mktemp)
 systemctl() {
   printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
@@ -224,5 +287,16 @@ menu_err=$(printf '08\n10\n' | LC_ALL=C manage_service 2>&1 >/dev/null) \
 [[ $menu_err != *'too great for base'* ]] || fail "leading-zero menu choice caused an arithmetic error"
 echo "PASS service menu leading-zero input"
 
+if manage_service --bogus >/dev/null 2>&1; then fail "unknown service scope accepted"; fi
+if manage_service --flatpak >/dev/null 2>&1; then fail "flatpak scope was allowed without a flatpak install"; fi
+printf '10\n' | manage_service --native >/dev/null 2>&1 || fail "service --native menu did not open"
+echo "PASS service scope selection"
+
 bash "$ROOT/tests/kde.sh"
 bash "$ROOT/tests/hyprland.sh"
+
+# End-to-end CLI checks run against the real interpreter; skip when uid 0
+# (container jobs) because chmod-based scenarios cannot fail closed there.
+if [[ $EUID -ne 0 ]]; then
+  bash "$ROOT/tests/cli-smoke.sh"
+fi

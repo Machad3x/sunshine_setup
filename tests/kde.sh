@@ -98,6 +98,7 @@ red='' yellow='' bold='' normal=''
 IMMUTABLE=0
 UNSUPPORTED_DISTRO=1
 DISTRO=unsupported
+SCRIPT_DIR=$ROOT
 FLATPAK_UNIT=app-dev.lizardbyte.app.Sunshine.service
 BIN_DIR="$HOME/.local/bin"
 TEMP_FILES=()
@@ -121,8 +122,14 @@ flatpak_installed() { return 0; }
 setup_vmon_kde >/dev/null
 [[ -f "$BIN_DIR/sunshine-vmon-common.sh" && -x "$BIN_DIR/sunshine-start-vmon" && -x "$BIN_DIR/sunshine-stop-vmon" ]] \
   || fail "KDE virtual-monitor hooks were not installed for the Flatpak setup"
+[[ $(stat -c '%a' "$BIN_DIR/sunshine-vmon-common.sh") == 644 ]] \
+  || fail "sunshine-vmon-common.sh is not mode 644"
+[[ $(stat -c '%a' "$BIN_DIR/sunshine-start-vmon") == 755 ]] \
+  || fail "sunshine-start-vmon is not mode 755"
 jq -e '.apps | any(.[]; .name == "Virtual Monitor")' "$APP_CONF" >/dev/null \
   || fail "Virtual Monitor app was not written"
+grep -q '^ExecStopPost="' "$HOME/.config/systemd/user/$UNIT.d/vmon.conf" \
+  || fail "ExecStopPost path is not quoted"
 
 DO_CMD=$(jq -r '.apps[] | select(.name == "Virtual Monitor") | .["prep-cmd"][0].do' "$APP_CONF")
 UNDO_CMD=$(jq -r '.apps[] | select(.name == "Virtual Monitor") | .["prep-cmd"][0].undo' "$APP_CONF")
@@ -141,9 +148,11 @@ jq -e 'any(.[]; .name == "DP-1" and .enabled == true)' "$KD_STATE" >/dev/null \
   || fail "physical output was not restored"
 echo "PASS KDE Flatpak virtual-monitor lifecycle"
 
-# Sunshine accepts a config without an "apps" key; removal must handle it.
+# Sunshine accepts a config without an "apps" key; removal must handle it
+# without touching the file or claiming a removal that did not happen.
 printf '{"env":{}}\n' > "$APP_CONF"
-remove_vmon || fail "removal failed on an apps-less config"
-jq -e '.apps == []' "$APP_CONF" >/dev/null || fail "apps-less config was not normalized"
+out=$(remove_vmon 2>&1) || fail "removal failed on an apps-less config"
+[[ $(<"$APP_CONF") == '{"env":{}}' ]] || fail "removal modified an apps-less config it did not need to change"
+[[ $out != *"Entry removed"* ]] || fail "removal reported a removal that did not happen"
 [[ ! -e "$BIN_DIR/sunshine-start-vmon" ]] || fail "KDE hooks were not removed"
 echo "PASS KDE virtual-monitor removal with an apps-less config"
