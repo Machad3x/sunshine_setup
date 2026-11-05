@@ -137,35 +137,48 @@ open_firewall() {
   echo "  ${yellow}These ports become reachable on your network; use a trusted LAN.${normal}"
   ask_yes_no "Proceed?" || { echo "  Aborted."; return 0; }
 
-  local p family
+  local p family failed=0
   if [[ $backend == firewalld ]]; then
     if [[ -n $source_cidr ]]; then
       family=ipv4
       [[ $source_cidr == *:*/* ]] && family=ipv6
       for p in "${tcp[@]}"; do
-        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"tcp\" accept"
+        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"tcp\" accept" \
+          || failed=$((failed + 1))
       done
       for p in "${udp[@]}"; do
-        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"udp\" accept"
+        sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"$p\" protocol=\"udp\" accept" \
+          || failed=$((failed + 1))
       done
-      sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"5353\" protocol=\"udp\" accept"
+      sudo firewall-cmd --permanent --add-rich-rule="rule family=\"$family\" source address=\"$source_cidr\" port port=\"5353\" protocol=\"udp\" accept" \
+        || failed=$((failed + 1))
     else
-      for p in "${tcp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/tcp"; done
-      for p in "${udp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/udp"; done
-      sudo firewall-cmd --permanent --add-service=mdns
+      for p in "${tcp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/tcp" || failed=$((failed + 1)); done
+      for p in "${udp[@]}"; do sudo firewall-cmd --permanent --add-port="$p/udp" || failed=$((failed + 1)); done
+      sudo firewall-cmd --permanent --add-service=mdns || failed=$((failed + 1))
     fi
-    sudo firewall-cmd --reload
+    if (( failed )); then
+      echo "${red}${failed} firewalld rule(s) could not be added.${normal}" >&2
+      echo "  The rules above that succeeded are kept; existing rules were not rolled back." >&2
+    fi
+    sudo firewall-cmd --reload || failed=$((failed + 1))
     echo "  ${dim}Current firewall rules:${normal}"
     sudo firewall-cmd --list-all | sed 's/^/    /' || true
+    (( failed == 0 )) || return 1
   else
     if [[ -n $source_cidr ]]; then
-      for p in "${tcp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto tcp comment 'Sunshine'; done
-      for p in "${udp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto udp comment 'Sunshine'; done
-      sudo ufw allow from "$source_cidr" to any port 5353 proto udp comment 'Sunshine mDNS'
+      for p in "${tcp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto tcp comment 'Sunshine' || failed=$((failed + 1)); done
+      for p in "${udp[@]}"; do sudo ufw allow from "$source_cidr" to any port "$p" proto udp comment 'Sunshine' || failed=$((failed + 1)); done
+      sudo ufw allow from "$source_cidr" to any port 5353 proto udp comment 'Sunshine mDNS' || failed=$((failed + 1))
     else
-      for p in "${tcp[@]}"; do sudo ufw allow "$p/tcp" comment 'Sunshine'; done
-      for p in "${udp[@]}"; do sudo ufw allow "$p/udp" comment 'Sunshine'; done
-      sudo ufw allow 5353/udp comment 'Sunshine mDNS'
+      for p in "${tcp[@]}"; do sudo ufw allow "$p/tcp" comment 'Sunshine' || failed=$((failed + 1)); done
+      for p in "${udp[@]}"; do sudo ufw allow "$p/udp" comment 'Sunshine' || failed=$((failed + 1)); done
+      sudo ufw allow 5353/udp comment 'Sunshine mDNS' || failed=$((failed + 1))
+    fi
+    if (( failed )); then
+      echo "${red}${failed} ufw rule(s) could not be added.${normal}" >&2
+      echo "  The rules above that succeeded are kept; existing rules were not rolled back." >&2
+      return 1
     fi
     echo "  ${dim}Current rules:${normal}"
     sudo ufw status | grep -i sunshine | sed 's/^/    /' || true
