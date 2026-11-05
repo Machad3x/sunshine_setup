@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.0] - 2026-11-05
+
+### Added
+- Keyboard language menu (`keyboard`/`kb`, `keyboard-apply`/`kb-apply`, `keyboard-locale <locale>`/`kb-locale`): modern Sunshine has no keyboard-layout option — typed characters follow the host's session layout and `locale` only translates the Web UI. The new module detects the configured keyboard layout (KDE `kxkbrc`, GNOME input sources, `/etc/default/keyboard`, `/etc/vconsole.conf` console keymaps, Hyprland `kb_layout`), shows it next to the live session layout and warns on mismatches (e.g. system says `br` while KDE defaults to `us`), rewrites KDE's `kxkbrc` through `kwriteconfig` (or refuses to touch an existing file without it), and syncs `locale = …` in every `sunshine.conf` (native and Flatpak) with comment/setting-preserving rewrites that also merge duplicate assignments, the first of which is the only one Sunshine honors. An active Sunshine service is offered for restart; the CLI never blocks on prompts.
+- KDE/Wayland session layouts are read from KWin over D-Bus (`org.kde.KWin /Layouts org.kde.KeyboardLayouts`) because `setxkbmap` only mirrors XWayland, which KWin may keep on its US default while Wayland devices type with the configured layout (verified live: D-Bus said `br`, `setxkbmap` said `us`). The Keyboard menu also prints the ABNT2 note: the dedicated `/ ?` key (`VK_ABNT_C1`) is dropped by Moonlight for Windows and unmapped in Sunshine's Linux backend — AltGr+Q / AltGr+W produce `/` and `?` on the ABNT2 layout.
+
 ## [3.3.0] - 2026-11-04
 
 ### Changed
