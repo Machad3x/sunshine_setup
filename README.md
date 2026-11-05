@@ -18,7 +18,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
   - **CachyOS**: Installed via official repositories (`pacman -S sunshine`).
   - **Ubuntu / Debian**: Automatically fetches and installs compatible upstream `.deb` releases.
 - **Immutable System Protection**:
-  - Full support for **Fedora Silverblue**, **Kinoite**, **Bazzite**, **Bluefin**, **Aurora**, **SteamOS**, **openSUSE MicroOS**, `bootc`, and other immutable variants.
+  - Full support for **Fedora Silverblue**, **Kinoite**, **Bazzite**, **Bluefin**, **Aurora**, **openSUSE MicroOS**/**uCore**, **SteamOS/Steam Deck**, **Sericea**, **Onyx**, HoloISO, `bootc`, and other immutable variants.
   - Native package manager execution (`dnf`, `pacman`, `apt`) is **strictly prevented** on immutable systems.
   - Automatic fallback to **Flatpak** installation.
 - **Flexible Flatpak Installation**:
@@ -91,7 +91,7 @@ Run the script without arguments to open the interactive selection menu:
 | Command | Description |
 | :--- | :--- |
 | `./sunshine-setup.sh install` | Interactive installation prompt. |
-| `./sunshine-setup.sh install --flatpak-system` | Force Flatpak installation (System-wide / `--system`). |
+| `./sunshine-setup.sh install --flatpak-system` | Force Flatpak installation (system-wide / `--system`; `--flatpak` is an alias). |
 | `./sunshine-setup.sh install --flatpak-user` | Force Flatpak installation (Per-user / `--user`). |
 | `./sunshine-setup.sh install --native` | Force native package installation (Blocked on immutable systems). |
 | `./sunshine-setup.sh virtual-monitor` | Open the Virtual Monitor menu to add or remove its configuration. |

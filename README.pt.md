@@ -18,7 +18,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
   - **CachyOS**: Instalado via repositórios oficiais (`pacman -S sunshine`).
   - **Ubuntu / Debian**: Obtém e instala automaticamente pacotes `.deb` compatíveis diretamente do repositório upstream.
 - **Proteção para Sistemas Imutáveis**:
-  - Compatibilidade completa com **Fedora Silverblue**, **Kinoite**, **Bazzite**, **Bluefin**, **Aurora**, **SteamOS**, **openSUSE MicroOS**, `bootc` e outros sistemas atômicos.
+  - Compatibilidade completa com **Fedora Silverblue**, **Kinoite**, **Bazzite**, **Bluefin**, **Aurora**, **openSUSE MicroOS**/**uCore**, **SteamOS/Steam Deck**, **Sericea**, **Onyx**, HoloISO, `bootc` e outros sistemas atômicos.
   - Execução de gerenciadores de pacotes nativos (`dnf`, `pacman`, `apt`) é **estritamente bloqueada** em sistemas imutáveis.
   - Redirecionamento automático para instalação via **Flatpak**.
 - **Escopos Flexíveis no Flatpak**:
@@ -91,7 +91,7 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | Comando | Descrição |
 | :--- | :--- |
 | `./sunshine-setup.sh install` | Menu interativo para seleção do método de instalação. |
-| `./sunshine-setup.sh install --flatpak-system` | Força a instalação via Flatpak (Escopo do Sistema / `--system`). |
+| `./sunshine-setup.sh install --flatpak-system` | Força a instalação via Flatpak (Escopo do Sistema / `--system`; `--flatpak` é um alias). |
 | `./sunshine-setup.sh install --flatpak-user` | Força a instalação via Flatpak (Escopo do Usuário / `--user`). |
 | `./sunshine-setup.sh install --native` | Força instalação nativa (Bloqueado em sistemas imutáveis). |
 | `./sunshine-setup.sh virtual-monitor` | Abre o menu do Monitor Virtual para adicionar ou remover a configuração. |
