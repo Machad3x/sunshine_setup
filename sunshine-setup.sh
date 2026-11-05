@@ -54,11 +54,16 @@ DEBIAN_NATIVE_SUPPORTED_CODENAME="trixie"
 [[ $EUID -eq 0 ]] && { echo "Do not run this script as root." >&2; exit 1; }
 
 # ---------- shared helpers ----------
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Resolve SCRIPT_DIR without external commands (PATH may be minimal at bootstrap).
+_src=${BASH_SOURCE[0]}
+if [[ $_src == */* ]]; then _srcdir=${_src%/*}; else _srcdir=.; fi
+SCRIPT_DIR=$(cd -- "$_srcdir" && pwd)
+unset _src _srcdir
 # shellcheck source=modules/common.sh
 source "$SCRIPT_DIR/modules/common.sh"
 
 # ---------- distro detection ----------
+[[ -r /etc/os-release ]] || { echo "Could not read /etc/os-release; it is required for distro detection." >&2; exit 1; }
 . /etc/os-release
 UNSUPPORTED_DISTRO=0
 if ! detect_distro "${ID:-}" "${ID_LIKE:-}"; then
@@ -89,10 +94,11 @@ is_immutable() {
 IMMUTABLE=0
 if is_immutable; then IMMUTABLE=1; fi
 
-# Returns 0 when this Debian system may use native .deb installation.
+# Returns 0 when the upstream .deb may be installed natively: only on Debian
+# 13 (trixie). Non-Debian systems always pass this check (callers gate on
+# DISTRO before calling it).
 debian_native_ok() {
-  [[ $DISTRO == debian ]] || return 0
-  [[ "${VERSION_ID:-}" == "$DEBIAN_NATIVE_SUPPORTED_ID" ]]
+  [[ $DISTRO != debian ]] || [[ "${VERSION_ID:-}" == "$DEBIAN_NATIVE_SUPPORTED_ID" ]]
 }
 
 # ---------- helpers ----------
@@ -132,23 +138,14 @@ pkg_install() {
   esac
 }
 
-native_installed()  { command -v sunshine >/dev/null 2>&1; }
-flatpak_installed() {
-  command -v flatpak >/dev/null 2>&1 \
-    && { flatpak info --user "$FLATPAK_ID" >/dev/null 2>&1 \
-      || flatpak info --system "$FLATPAK_ID" >/dev/null 2>&1; }
-}
-
 # Returns the actual systemd user unit name for a native Sunshine install.
-# The Flatpak unit is also named app-dev...service under ~/.config/systemd/user,
-# so that path must never shadow the system-installed native unit.
+# Flatpak-generated app-dev...service units only ever appear under
+# ~/.config/systemd/user, so just sunshine.service paths are probed here;
+# the app unit name remains the fallback for unusual native packaging.
 native_unit() {
   local d
   for d in /usr/lib/systemd/user /etc/systemd/user; do
     [[ -f "$d/sunshine.service" ]] && { echo "sunshine.service"; return 0; }
-  done
-  for d in /usr/lib/systemd/user /etc/systemd/user; do
-    [[ -f "$d/app-dev.lizardbyte.app.Sunshine.service" ]] && { echo "app-dev.lizardbyte.app.Sunshine.service"; return 0; }
   done
   if [[ -f "$HOME/.config/systemd/user/sunshine.service" ]]; then
     echo "sunshine.service"; return 0
@@ -156,55 +153,19 @@ native_unit() {
   echo "app-dev.lizardbyte.app.Sunshine.service"
 }
 
+# Detects a configured virtual monitor.
+# Returns 0 (configured), 1 (not configured) or 2 (cannot check: jq missing).
 is_vmon_configured() {
-  command -v jq >/dev/null || return 1
+  command -v jq >/dev/null || return 2
   local conf
-  for conf in "$HOME/.config/sunshine/apps.json" \
-              "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
-    if [[ -f $conf ]] && jq -e '.apps[]? | select(.name == "Virtual Monitor" or .name == "Virtual Monitor (Hyprland)")' "$conf" &>/dev/null; then
+  while IFS= read -r conf; do
+    [[ -f $conf ]] || continue
+    if jq -e '.apps[]?
+      | select(.name == "Virtual Monitor" or .name == "Virtual Monitor (Hyprland)")' "$conf" &>/dev/null; then
       return 0
     fi
-  done
+  done < <(apps_conf_paths)
   return 1
-}
-
-ubuntu_version() {
-  if [[ ${ID:-} == ubuntu ]]; then echo "${VERSION_ID:-}"; return; fi
-  case "${UBUNTU_CODENAME:-}" in
-    jammy)  echo 22.04 ;;
-    noble)  echo 24.04 ;;
-    plucky) echo 25.04 ;;
-    questing) echo 25.10 ;;
-    *)      echo "" ;;
-  esac
-}
-
-choose() {
-  local prompt=$1; shift
-  local -a opts=("$@")
-  local n=${#opts[@]}
-  local i choice
-  echo
-  for i in "${!opts[@]}"; do
-    printf "  ${cyan}%d${normal})  %s\n" "$((i+1))" "${opts[$i]}"
-  done
-  echo
-  while true; do
-    printf "  ${bold}%s [1-%d]:${normal} " "$prompt" "$n"
-    if ! read -r choice; then echo; return 1; fi
-    if [[ $choice =~ ^[0-9]+$ ]] && (( 10#$choice >= 1 && 10#$choice <= n )); then
-      REPLY=$((10#$choice))
-      return 0
-    fi
-    printf "  ${red}Choose a number from 1 to %d.${normal}\n" "$n"
-  done
-}
-
-ask_yes_no() {
-  local reply=""
-  printf "  ${bold}%s${normal} (y/N) " "$1"
-  read -r reply || return 1
-  [[ "${reply,,}" =~ ^y ]]
 }
 
 # ---------- module loading ----------
@@ -302,15 +263,16 @@ usage() {
     bash $0 [command] [args...]
 
   ${bold}Commands:${normal}
-    install [--flatpak-system|--flatpak-user|--native]   Install Sunshine
-    virtual-monitor                                      Open virtual monitor menu
-    vmon                                                  Add/configure monitor for KDE Plasma or Hyprland
-    remove                                                Remove virtual monitor
-    fixes                                                 Open Error 503 fixes menu
-    503                                                   Apply the Error 503 fix
-    503-reset                                             Revert the Error 503 fix
-    firewall                                              Configure Sunshine firewall ports
-    service                                               Interactive service menu
+    install [--flatpak-system|--flatpak-user|--flatpak|--native]
+                                          Install Sunshine (unknown flags are rejected)
+    virtual-monitor | vmon-menu           Open virtual monitor menu
+    vmon | virtual-monitor-add            Add/configure monitor for KDE Plasma or Hyprland
+    remove | virtual-monitor-remove       Remove virtual monitor
+    fixes | error-503                     Open Error 503 fixes menu
+    503 | fix-503                         Apply the Error 503 fix
+    503-reset | reset-503                 Revert the Error 503 fix
+    firewall                              Configure Sunshine firewall ports
+    service [--native|--flatpak]          Interactive service menu (scope skips detection)
 
   ${bold}Service control:${normal}
     start|stop|restart|enable|disable|status|logs|follow [--native|--flatpak]
@@ -326,7 +288,7 @@ usage() {
   ${bold}Notes:${normal}
     - Arch uses yay or paru for AUR (sunshine-bin).
     - CachyOS uses pacman (repo package 'sunshine').
-    - Ubuntu uses the upstream .deb (best effort; Flatpak as fallback).
+    - Ubuntu uses the upstream .deb (best-effort; Flatpak as fallback).
     - Debian 13 (trixie): native via upstream .deb; Debian 12 and older or 14+: Flatpak only.
     - Immutable systems support Flatpak best; native package installation is disabled.
     - Firewall rules can optionally be restricted to an IPv4/IPv6 CIDR.
@@ -335,15 +297,17 @@ EOF
 }
 
 virtual_monitor_menu() {
-  local choice
+  local choice status
   while true; do
     echo
     echo "  ${bold}Virtual Monitor${normal}"
-    if is_vmon_configured; then
-      echo "  ${green}Virtual Monitor is configured.${normal}"
-    else
-      echo "  ${yellow}Virtual Monitor is not configured.${normal}"
-    fi
+    status=0
+    is_vmon_configured || status=$?
+    case $status in
+      0) echo "  ${green}Virtual Monitor is configured.${normal}" ;;
+      2) echo "  ${yellow}Cannot check the Virtual Monitor state: jq is required to inspect apps.json.${normal}" ;;
+      *) echo "  ${yellow}Virtual Monitor is not configured.${normal}" ;;
+    esac
     printf "  ${cyan}1${normal})  Add / configure Virtual Monitor\n"
     printf "  ${cyan}2${normal})  Remove Virtual Monitor\n"
     printf "  ${cyan}3${normal})  Back\n\n"
@@ -389,7 +353,7 @@ run_action() {
     503|fix-503) fix_503 ;;
     503-reset|reset-503) reset_503 ;;
     firewall) open_firewall ;;
-    service) manage_service ;;
+    service) manage_service "${2:-}" ;;
     start|stop|restart|enable|disable|status|logs|follow)
       service_action "$1" "${2:-}" ;;
     repair) repair_startup "${2:-}" ;;
@@ -435,7 +399,7 @@ if [[ $# -ge 1 ]]; then
     -v|--version) echo "sunshine-setup.sh $SCRIPT_VERSION"; exit 0 ;;
   esac
   run_action "$@"
-  exit $?
+  exit
 fi
 
 main_menu
