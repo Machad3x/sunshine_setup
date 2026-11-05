@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.4.1] - 2026-11-05
+
+### Changed
+- The Keyboard menu's ABNT2-specific warning is now a general note shown for any non-US host layout: Sunshine converts client keys through a fixed table of US-layout positions, so extra/layout-specific keys (e.g. ABNT2's dedicated `/ ?`, JIS or ISO additions) may still be missing or shifted even with a correct session layout; layout alternatives (AltGr levels, dead keys) usually work, and the note is skipped on US layouts.
+
 ## [3.4.0] - 2026-11-05
 
 ### Added
