@@ -126,7 +126,7 @@ got=$(ID=pop VERSION_ID=26.10 UBUNTU_CODENAME=stonking ubuntu_version)
 [[ $got == 26.10 ]] || fail "stonking mapping failed ($got)"
 got=$(ID=ubuntu VERSION_ID=26.10 ubuntu_version)
 [[ $got == 26.10 ]] || fail "Ubuntu 26.10 VERSION_ID passthrough failed ($got)"
-got=$(ID=debian VERSION_ID=13 UBUNTU_CODENAME= ubuntu_version)
+got=$(ID=debian VERSION_ID=13 ubuntu_version)
 [[ -z $got ]] || fail "non-Ubuntu should return empty ($got)"
 echo "PASS Ubuntu release mapping"
 

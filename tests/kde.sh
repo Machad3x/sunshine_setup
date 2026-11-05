@@ -58,7 +58,11 @@ state="${KD_STATE:?}"
 jq '. + [{name:"Virtual-sunshine-vmon",enabled:true,connected:true}]' \
   "$state" > "$state.tmp"
 mv "$state.tmp" "$state"
-exec -a krfb-virtualmonitor sleep 300
+# /proc/PID/cmdline must read "krfb-virtualmonitor" for is_vmon_process(),
+# hence exec -a. The target is bash (not sleep): busybox dispatches applets
+# by argv[0], so renaming sleep breaks it, while bash honors the trap and
+# exits promptly on SIGTERM between sleep iterations.
+exec -a krfb-virtualmonitor bash -c 'trap exit TERM INT; while sleep 60 & wait $!; do :; done'
 MOCK
 
 cat > "$TMP/bin/flatpak-spawn" <<'MOCK'

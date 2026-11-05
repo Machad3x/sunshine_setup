@@ -2,6 +2,7 @@
 # Shared helpers for the installed Hyprland virtual-monitor hooks.
 
 # Shared by the installed Hyprland hooks (start/stop source this file).
+# shellcheck disable=SC2034  # consumed by the sourcing hooks
 HYPR_VMON_NAME="sunshine-vmon"
 
 hypr_vmon_runtime_state_dir() {

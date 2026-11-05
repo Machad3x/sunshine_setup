@@ -2,6 +2,7 @@
 # Shared state and helpers for the installed KDE virtual-monitor hooks
 # (installed as ~/.local/bin/sunshine-vmon-common.sh and sourced by
 # sunshine-start-vmon / sunshine-stop-vmon).
+# shellcheck disable=SC2034  # variables are consumed by the sourcing hooks
 VMON_BASE="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-vmon-$(id -u)"
 VMON_PID="${VMON_BASE}.pid"
 VMON_STATE_DIR="${VMON_BASE}.state"

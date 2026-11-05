@@ -39,10 +39,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install test dependencies
-        run: >
-          apt-get update &&
-          apt-get install -y --no-install-recommends
-          jq coreutils findutils grep sed mawk
+        # The bash images are Alpine-based: apk, and GNU coreutils/grep/sed
+        # for the feature set the script relies on (--reference, -E, head -c).
+        run: apk add --no-cache jq coreutils grep sed findutils gawk
 
       - name: Test suite
         run: bash tests/run.sh
