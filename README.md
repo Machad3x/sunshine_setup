@@ -33,6 +33,7 @@ Ported and enhanced from the Bazzite `setup-sunshine` ujust recipe and virtual m
 - **Troubleshooting & Utility Actions**:
   - **Error 503 Fix**: Adds `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` in a dedicated environment file; `503-reset` removes the setting.
   - **Firewall Setup**: Automatically detects `firewalld` or `ufw` and opens necessary network ports for streaming and mDNS discovery, optionally restricted to an IPv4/IPv6 CIDR.
+  - **Keyboard Language**: Sunshine has no keyboard-layout setting — the characters typed by a client follow the host's session keyboard layout, and `locale` only translates the Web UI. The Keyboard menu detects your configured layout (KDE `kxkbrc`, GNOME, `/etc/default/keyboard`, `/etc/vconsole.conf`, Hyprland), warns when the session uses a different one (the usual cause of "the keyboard is always US"), fixes it on KDE Plasma, and syncs Sunshine's `locale` to match (or lets you pick either by hand).
   - **Clean Uninstallation**: Removes virtual monitor scripts, systemd post-execution hooks, and Sunshine application configurations.
 
 ---
@@ -100,6 +101,9 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh fixes` | Open the Error 503 menu to apply or revert the fix. |
 | `./sunshine-setup.sh 503` | Apply the Error 503 fix directly. |
 | `./sunshine-setup.sh 503-reset` | Revert the Error 503 fix directly. |
+| `./sunshine-setup.sh keyboard` | Open the Keyboard language menu (detect layout, fix session layout, sync Sunshine's `locale`). |
+| `./sunshine-setup.sh keyboard-apply` | Apply the detected keyboard layout and matching UI locale without prompting. |
+| `./sunshine-setup.sh keyboard-locale <locale>` | Set Sunshine's UI `locale` in `sunshine.conf` (e.g. `pt_BR`); `kb`/`kb-apply`/`kb-locale` are aliases. |
 | `./sunshine-setup.sh firewall` | Configure firewall rules for `firewalld` or `ufw`. |
 | `./sunshine-setup.sh service [--native\|--flatpak]` | Open the Sunshine service control menu (the scope flag skips mode detection). |
 | `./sunshine-setup.sh start\|stop\|restart\|enable\|disable\|status\|logs\|follow [--native\|--flatpak]` | Control or inspect the Sunshine user service. |
@@ -107,7 +111,7 @@ Run the script without arguments to open the interactive selection menu:
 | `./sunshine-setup.sh --help` | Display script usage notes and options. |
 | `./sunshine-setup.sh --version` | Display the script version. |
 
-The interactive menu groups related actions under **Virtual Monitor** (add/remove) and **Error 503 Fixes** (apply/revert). Virtual-monitor backends are organized under `modules/vmon/kde/` and `modules/vmon/hyprland/`; the shared dispatcher is `modules/vmon/dispatch.sh`.
+The interactive menu groups related actions under **Virtual Monitor** (add/remove), **Error 503 Fixes** (apply/revert), and **Keyboard language** (detect/choose layout, choose UI locale). Virtual-monitor backends are organized under `modules/vmon/kde/` and `modules/vmon/hyprland/`; the shared dispatcher is `modules/vmon/dispatch.sh`.
 
 ---
 

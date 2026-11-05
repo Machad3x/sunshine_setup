@@ -5,6 +5,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$ROOT/modules/common.sh"
 source "$ROOT/modules/firewall.sh"
 source "$ROOT/modules/fixes.sh"
+source "$ROOT/modules/keyboard.sh"
 source "$ROOT/modules/service.sh"
 source "$ROOT/modules/install.sh"
 source "$ROOT/modules/vmon/dispatch.sh"
@@ -262,6 +263,59 @@ reset_503 >/dev/null
 [[ $(<"$HOME/.config/environment.d/98-sunshine-setup-503.conf") == 'KEEP=1' ]] \
   || fail "reset_503 did not clean both current and legacy files"
 echo "PASS Error 503 overwrite protection and legacy reset"
+
+KBD_CONF="$HOME/.config/sunshine/sunshine.conf"
+[[ $(locale_for_layout br) == pt_BR ]] || fail "br should map to pt_BR"
+[[ $(locale_for_layout gb) == en_GB ]] || fail "gb should map to en_GB"
+if locale_for_layout dvorak4 >/dev/null; then fail "unknown layout was mapped"; fi
+is_sunshine_locale pt_BR || fail "pt_BR should be a supported locale"
+if is_sunshine_locale pt-Br; then fail "unknown locale was accepted"; fi
+if set_sunshine_locale nope 2>"$TEST_HOME/kbd-bad.log"; then fail "set_sunshine_locale accepted a bad code"; fi
+grep -q 'Unsupported Sunshine locale' "$TEST_HOME/kbd-bad.log" \
+  || fail "bad locale code did not report the problem"
+
+printf '# examples\n# locale = de\nlocale = en\nport = 47989\nlocale = fr\n' > "$KBD_CONF"
+[[ $(read_conf_value "$KBD_CONF" locale) == en ]] || fail "first active assignment should win"
+write_conf_value "$KBD_CONF" locale pt_BR || fail "write_conf_value failed"
+[[ $(grep -c '^locale = pt_BR' "$KBD_CONF") == 1 ]] || fail "duplicate active assignments were not merged"
+grep -q '^# locale = de' "$KBD_CONF" || fail "commented example was rewritten"
+grep -Fxq 'port = 47989' "$KBD_CONF" || fail "unrelated setting was lost"
+[[ $(read_conf_value "$KBD_CONF" locale) == pt_BR ]] || fail "locale was not read back"
+
+mkdir -p "$HOME/.config"
+printf '[General]\nLayoutList=zz\n[Layout]\nEnabled=true\nLayoutList=br,us\n' > "$HOME/.config/kxkbrc"
+[[ $(kxkb_get LayoutList) == br,us ]] || fail "kxkb_get should read the [Layout] section only"
+[[ $(system_keyboard_layout) == br ]] || fail "system_keyboard_layout should take the first kxkbrc layout"
+printf '[Layout]\nEnabled=false\nLayoutList=de\n' > "$HOME/.config/kxkbrc"
+got=$(system_keyboard_layout || true)
+[[ $got != de ]] || fail "disabled kxkbrc layout should be ignored"
+
+printf '#!/bin/sh\nif [ "${1:-}" = "-query" ]; then printf "rules:\teval\\nlayout:\tzz\\n"; fi\n' > "$BIN_DIR/setxkbmap"
+chmod +x "$BIN_DIR/setxkbmap"
+[[ $(XDG_CURRENT_DESKTOP=GNOME PATH="$BIN_DIR:$PATH" effective_xkb_layout) == zz ]] || fail "effective layout should come from setxkbmap outside KDE"
+
+command() { return 1; }   # simulate a host without kde-cli-tools or qdbus
+rm -f "$HOME/.config/kxkbrc"
+XDG_CURRENT_DESKTOP=KDE kde_set_layout br >/dev/null || fail "kde_set_layout should create a minimal kxkbrc"
+grep -Fxq 'LayoutList=br' "$HOME/.config/kxkbrc" || fail "created kxkbrc has the wrong content"
+if kde_set_layout us >/dev/null 2>&1; then fail "existing kxkbrc was rewritten without kwriteconfig"; fi
+unset -f command
+
+cat > "$BIN_DIR/busctl" <<'KWIN_STUB'
+#!/bin/sh
+case "$*" in
+  *getLayoutsList*) echo 'a(sss) 2 "br" "" "Portugu\303\252s (Brasil)" "us" "" "English (US)"' ;;
+  *getLayout*) echo 'u 1' ;;
+  *) exit 1 ;;
+esac
+KWIN_STUB
+chmod +x "$BIN_DIR/busctl"
+[[ $(PATH="$BIN_DIR:$PATH" kde_active_layout) == us ]] || fail "kde_active_layout should follow KWin's active index"
+[[ $(XDG_CURRENT_DESKTOP=KDE PATH="$BIN_DIR:$PATH" effective_xkb_layout) == us ]] || fail "KDE effective layout should come from KWin D-Bus, not setxkbmap"
+rm -f "$HOME/.config/kxkbrc"
+
+printf '4\n' | keyboard_menu >/dev/null || fail "keyboard menu should open and return on Back"
+echo "PASS keyboard layout and Sunshine locale"
 
 SYSTEMCTL_LOG=$(mktemp)
 systemctl() {

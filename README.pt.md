@@ -33,6 +33,7 @@ Portado e aprimorado a partir das receitas `setup-sunshine` e scripts de automa�
 - **Correções e Ferramentas de Manutenção**:
   - **Correção do Erro 503**: Adiciona `KWIN_WAYLAND_NO_PERMISSION_CHECKS=1` em um arquivo dedicado; `503-reset` remove a configuração.
   - **Configuração de Firewall**: Detecta `firewalld` ou `ufw` e libera as portas necessárias para streaming e mDNS, com opção de restringir a um CIDR IPv4/IPv6.
+  - **Idioma do Teclado**: O Sunshine não tem configuração de layout de teclado — os caracteres digitados por um cliente seguem o layout de teclado da sessão do host, e `locale` apenas traduz a interface web. O menu Teclado detecta o layout configurado (`kxkbrc` do KDE, GNOME, `/etc/default/keyboard`, `/etc/vconsole.conf`, Hyprland), avisa quando a sessão usa um layout diferente (a causa clássica de "o teclado fica sempre em inglês"), corrige isso no KDE Plasma e sincroniza o `locale` do Sunshine (ou permite escolher cada um manualmente).
   - **Desinstalação Limpa**: Remove scripts do monitor virtual, hooks de pós-execução do systemd e configurações da aplicação Sunshine.
 
 ---
@@ -100,6 +101,9 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh fixes` | Abre o menu do Erro 503 para aplicar ou reverter a correção. |
 | `./sunshine-setup.sh 503` | Aplica diretamente a correção do Erro 503. |
 | `./sunshine-setup.sh 503-reset` | Reverte diretamente a correção do Erro 503. |
+| `./sunshine-setup.sh keyboard` | Abre o menu de Idioma do Teclado (detecta o layout, corrige o layout da sessão e sincroniza o `locale` do Sunshine). |
+| `./sunshine-setup.sh keyboard-apply` | Aplica o layout de teclado detectado e o `locale` correspondente sem perguntar. |
+| `./sunshine-setup.sh keyboard-locale <locale>` | Define o `locale` (idioma da interface) do Sunshine no `sunshine.conf` (ex.: `pt_BR`); `kb`/`kb-apply`/`kb-locale` são apelidos. |
 | `./sunshine-setup.sh firewall` | Configura as regras de portas no `firewalld` ou `ufw`. |
 | `./sunshine-setup.sh service [--native\|--flatpak]` | Abre o menu de controle do serviço Sunshine (o escopo dispensa a detecção de modo). |
 | `./sunshine-setup.sh start\|stop\|restart\|enable\|disable\|status\|logs\|follow [--native\|--flatpak]` | Controla ou consulta o serviço de usuário do Sunshine. |
@@ -107,7 +111,7 @@ Execute o script sem argumentos para abrir o menu de seleção interativo:
 | `./sunshine-setup.sh --help` | Exibe as opções de ajuda e instruções do script. |
 | `./sunshine-setup.sh --version` | Exibe a versão do script. |
 
-O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover) e **Correções do Erro 503** (aplicar/reverter). Os backends do monitor virtual ficam organizados em `modules/vmon/kde/` e `modules/vmon/hyprland/`; o dispatcher compartilhado está em `modules/vmon/dispatch.sh`.
+O menu interativo agrupa ações relacionadas em **Monitor Virtual** (adicionar/remover), **Correções do Erro 503** (aplicar/reverter) e **Idioma do Teclado** (detectar/escolher o layout e o idioma da interface). Os backends do monitor virtual ficam organizados em `modules/vmon/kde/` e `modules/vmon/hyprland/`; o dispatcher compartilhado está em `modules/vmon/dispatch.sh`.
 
 ---
 

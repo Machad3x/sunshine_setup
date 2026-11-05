@@ -187,6 +187,8 @@ source "$SCRIPT_DIR/modules/vmon/hyprland/remove.sh"
 source "$SCRIPT_DIR/modules/vmon/dispatch.sh"
 # shellcheck source=modules/fixes.sh
 source "$SCRIPT_DIR/modules/fixes.sh"
+# shellcheck source=modules/keyboard.sh
+source "$SCRIPT_DIR/modules/keyboard.sh"
 # shellcheck source=modules/firewall.sh
 source "$SCRIPT_DIR/modules/firewall.sh"
 
@@ -271,6 +273,9 @@ usage() {
     fixes | error-503                     Open Error 503 fixes menu
     503 | fix-503                         Apply the Error 503 fix
     503-reset | reset-503                 Revert the Error 503 fix
+    keyboard | kb                         Open keyboard language menu
+    keyboard-apply | kb-apply             Set layout + locale from the detected keyboard
+    keyboard-locale | kb-locale <locale>  Set Sunshine's UI locale (e.g. pt_BR)
     firewall                              Configure Sunshine firewall ports
     service [--native|--flatpak]          Interactive service menu (scope skips detection)
 
@@ -352,6 +357,9 @@ run_action() {
     fixes|error-503) fixes_menu ;;
     503|fix-503) fix_503 ;;
     503-reset|reset-503) reset_503 ;;
+    keyboard|kb) keyboard_menu ;;
+    keyboard-apply|kb-apply) keyboard_apply_detected ;;
+    keyboard-locale|kb-locale) set_sunshine_locale "${2:-}" && restart_active_sunshine ;;
     firewall) open_firewall ;;
     service) manage_service "${2:-}" ;;
     start|stop|restart|enable|disable|status|logs|follow)
@@ -374,19 +382,21 @@ main_menu() {
     printf "  ${cyan}1${normal})  Install Sunshine\n"
     printf "  ${cyan}2${normal})  Virtual Monitor\n"
     printf "  ${cyan}3${normal})  Error 503 Fixes\n"
-    printf "  ${cyan}4${normal})  Configure firewall\n"
-    printf "  ${cyan}5${normal})  Manage Sunshine service\n"
-    printf "  ${cyan}6${normal})  Exit\n\n"
-    printf "  ${bold}Select [1-6]:${normal} "
+    printf "  ${cyan}4${normal})  Keyboard language\n"
+    printf "  ${cyan}5${normal})  Configure firewall\n"
+    printf "  ${cyan}6${normal})  Manage Sunshine service\n"
+    printf "  ${cyan}7${normal})  Exit\n\n"
+    printf "  ${bold}Select [1-7]:${normal} "
     if ! read -r choice; then echo; return 0; fi
     echo
     case "$choice" in
       1) run_action install || true ;;
       2) virtual_monitor_menu ;;
       3) fixes_menu ;;
-      4) run_action firewall || true ;;
-      5) run_action service || true ;;
-      6|q|Q|quit|exit) return 0 ;;
+      4) keyboard_menu ;;
+      5) run_action firewall || true ;;
+      6) run_action service || true ;;
+      7|q|Q|quit|exit) return 0 ;;
       "") continue ;;
       *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice" ;;
     esac

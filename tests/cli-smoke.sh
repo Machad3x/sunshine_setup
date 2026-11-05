@@ -92,5 +92,21 @@ else
   echo "  (bwrap unavailable — os-release guard scenario skipped)"
 fi
 
+# T11: kb-locale rewrites an existing sunshine.conf and rejects unknown codes.
+H6=$(fakehome); mkdir -p "$H6/.config/sunshine"
+printf 'port = 47989\n' > "$H6/.config/sunshine/sunshine.conf"
+out=$(HOME="$H6" "$BASH_BIN" "$S" kb-locale pt_BR 2>&1 </dev/null); rc=$?
+[[ $rc == 0 ]] && grep -Fxq 'locale = pt_BR' "$H6/.config/sunshine/sunshine.conf" \
+  && grep -Fxq 'port = 47989' "$H6/.config/sunshine/sunshine.conf" \
+  && ok "kb-locale writes sunshine.conf" || bad "kb-locale: rc=$rc $out"
+out=$(HOME="$H6" "$BASH_BIN" "$S" kb-locale xx 2>&1 </dev/null); rc=$?
+(( rc != 0 )) && [[ $out == *'Unsupported Sunshine locale'* ]] \
+  && ok "kb-locale rejects unknown codes" || bad "kb-locale xx rc=$rc out=$out"
+
+# T12: the keyboard menu opens and backs out cleanly.
+out=$(printf '4\n' | HOME="$H6" "$BASH_BIN" "$S" keyboard 2>&1); rc=$?
+[[ $rc == 0 ]] && [[ $out == *"Keyboard language"* ]] \
+  && ok "keyboard menu opens" || bad "keyboard menu rc=$rc out=$out"
+
 echo "PASS CLI smoke ($PASS checks, $FAIL failures)"
 (( FAIL == 0 ))
