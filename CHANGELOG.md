@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [3.2.0] - 2026-11-04
 
 ### Fixed
 - The script now fails with a clear message when `/etc/os-release` is missing or unreadable instead of aborting on the `source` command.
