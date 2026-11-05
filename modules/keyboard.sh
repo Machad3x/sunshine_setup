@@ -382,10 +382,14 @@ print_keyboard_status() {
   echo
   echo "  ${dim}Sunshine sends physical keycodes: the characters follow the session${normal}"
   echo "  ${dim}layout. 'locale' only translates the Web UI.${normal}"
-  if [[ ${effective:-} == br || ${configured:-} == br ]]; then
-    echo "  ${yellow}ABNT2 note:${normal} the dedicated ${bold}/ ?${normal} key (VK_ABNT_C1) is not sent by"
-    echo "  ${dim}Moonlight for Windows and not mapped by Sunshine's Linux backend yet;${normal}"
-    echo "  ${dim}on ABNT2 layouts AltGr+Q = / and AltGr+W = ?.${normal}"
+  if [[ -n ${configured:-} || -n ${effective:-} ]] \
+      && [[ ${configured:-us} != us || ${effective:-us} != us ]]; then
+    echo
+    echo "  ${yellow}Note:${normal} Sunshine converts client keys through a fixed table of US-layout"
+    echo "  ${dim}positions. With a non-US keyboard some layout-specific keys (extra or special"
+    echo "  ${dim}keys such as ABNT2's dedicated / ?, JIS or ISO additions) may still be missing"
+    echo "  ${dim}or shifted even when the session layout is correct. Layout alternatives"
+    echo "  ${dim}(AltGr levels, dead keys) usually work. If your layout types fine, ignore this."
   fi
 }
 
