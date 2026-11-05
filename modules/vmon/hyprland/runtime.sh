@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Shared helpers for the installed Hyprland virtual-monitor hooks.
 
+# Shared by the installed Hyprland hooks (start/stop source this file).
+HYPR_VMON_NAME="sunshine-vmon"
+
+hypr_vmon_runtime_state_dir() {
+  printf '%s\n' "${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-hyprland-vmon-$(id -u)"
+}
+
 # Export a valid HYPRLAND_INSTANCE_SIGNATURE for the running compositor.
 # The value inherited by the Sunshine service can be missing or stale (for
 # example after a compositor restart), so fall back to the live socket.
@@ -66,34 +73,25 @@ hypr_vmon_output_is_active() {
   jq -e --arg name "$name" 'any(.[]; .name == $name)' <<< "$json" >/dev/null
 }
 
-hypr_vmon_wait_for_output_disabled() {
-  local name=$1 attempt status
+# Wait until the output matches the expected state ($2: active|disabled).
+# Returns 1 on timeout, and also 1 immediately when the compositor state
+# cannot be read (hypr_vmon_output_is_active status 2).
+hypr_vmon_wait_for_output() {
+  local name=$1 expect=$2 attempt status
   for ((attempt = 0; attempt < 20; attempt++)); do
-    if hypr_vmon_output_is_active "$name"; then
-      sleep 0.1
-      continue
-    else
-      status=$?
-    fi
-    (( status == 1 )) && return 0
-    return 1
+    hypr_vmon_output_is_active "$name"; status=$?
+    case $status in
+      0) [[ $expect == active ]] && return 0 ;;
+      1) [[ $expect == disabled ]] && return 0 ;;
+      *) return 1 ;;
+    esac
+    sleep 0.1
   done
-  echo "Hyprland did not disable the physical output $name." >&2
-  return 1
-}
-
-hypr_vmon_wait_for_output_active() {
-  local name=$1 attempt status
-  for ((attempt = 0; attempt < 20; attempt++)); do
-    if hypr_vmon_output_is_active "$name"; then
-      return 0
-    else
-      status=$?
-    fi
-    (( status == 1 )) && sleep 0.1 && continue
-    return 1
-  done
-  echo "Hyprland did not restore the physical output $name." >&2
+  if [[ $expect == disabled ]]; then
+    echo "Hyprland did not disable the physical output $name." >&2
+  else
+    echo "Hyprland did not restore the physical output $name." >&2
+  fi
   return 1
 }
 
@@ -158,7 +156,7 @@ hypr_vmon_apply_physical_monitors() {
         echo "Could not disable the Hyprland output $name." >&2
         return 1
       fi
-      hypr_vmon_wait_for_output_disabled "$name" || return 1
+      hypr_vmon_wait_for_output "$name" disabled || return 1
       continue
     fi
 
@@ -171,7 +169,7 @@ hypr_vmon_apply_physical_monitors() {
       failed=1
       continue
     fi
-    hypr_vmon_wait_for_output_active "$name" || {
+    hypr_vmon_wait_for_output "$name" active || {
       echo "Could not restore the Hyprland output $name." >&2
       failed=1
     }

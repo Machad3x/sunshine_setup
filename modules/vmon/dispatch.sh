@@ -38,8 +38,7 @@ vmon_app_configured() {
 
 remove_vmon() {
   local backend conf status kde_configured=0 hyprland_configured=0
-  for conf in "$HOME/.config/sunshine/apps.json" \
-              "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
+  while IFS= read -r conf; do
     if vmon_app_configured "$conf" "Virtual Monitor"; then
       kde_configured=1
     else
@@ -52,7 +51,7 @@ remove_vmon() {
       status=$?
       (( status == 1 )) || return "$status"
     fi
-  done
+  done < <(apps_conf_paths)
   [[ -f $(hypr_vmon_state_dir)/config-path ]] && hyprland_configured=1
   [[ -f $BIN_DIR/sunshine-vmon-common.sh ]] && kde_configured=1
 

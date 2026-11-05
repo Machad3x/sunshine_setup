@@ -9,29 +9,14 @@ remove_vmon_kde() {
       return 1
     fi
   fi
+  local m conf unit
   for m in native flatpak; do
-    local conf unit
     if [[ $m == flatpak ]]; then
       conf="$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; unit="$FLATPAK_UNIT"
     else
       conf="$HOME/.config/sunshine/apps.json"; unit="$(native_unit)"
     fi
-    if [[ -f $conf ]]; then
-      local TMP; TMP=$(mktemp "${conf}.sunshine-vmon.XXXXXX") || return 1
-      TEMP_FILES+=("$TMP")
-      if jq '.apps = ((.apps // []) | map(select(.name != "Virtual Monitor")))' "$conf" > "$TMP"; then
-        if ! chmod --reference="$conf" "$TMP" || ! mv -f -- "$TMP" "$conf"; then
-          rm -f -- "$TMP"
-          echo "${red}Could not replace $conf. Leaving virtual-monitor files in place.${normal}" >&2
-          return 1
-        fi
-        echo "  Entry removed from $conf"
-      else
-        rm -f "$TMP"
-        echo "${red}Could not update $conf (invalid JSON?). Leaving virtual-monitor files in place.${normal}" >&2
-        return 1
-      fi
-    fi
+    vmon_remove_app "$conf" "Virtual Monitor" || return 1
     rm -f "$HOME/.config/systemd/user/${unit}.d/vmon.conf"
   done
   systemctl --user daemon-reload

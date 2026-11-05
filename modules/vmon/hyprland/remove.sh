@@ -3,39 +3,26 @@
 # shellcheck disable=SC2154
 
 remove_vmon_hyprland() {
-  local state_dir app_conf tmp start_script stop_script runtime_script runtime_state refs=0
+  local state_dir app_conf refs=0 start_script stop_script runtime_script
   state_dir=$(hypr_vmon_state_dir)
-  for app_conf in "$HOME/.config/sunshine/apps.json" \
-                  "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
+  # Validate every apps.json first so a broken file cannot leave the Sunshine
+  # config restored while app entries stay behind.
+  while IFS= read -r app_conf; do
     [[ -f $app_conf ]] || continue
     if ! jq -e '(.apps // []) | type == "array"' "$app_conf" >/dev/null 2>&1; then
       echo "${red}Could not update $app_conf (invalid JSON or apps list).${normal}" >&2
       return 1
     fi
-  done
+  done < <(apps_conf_paths)
   if ! hypr_vmon_restore_config; then
     echo "${red}Could not safely restore the previous Sunshine configuration; leaving the app entry in place.${normal}" >&2
     return 1
   fi
+  while IFS= read -r app_conf; do
+    vmon_remove_app "$app_conf" "Virtual Monitor (Hyprland)" || return 1
+  done < <(apps_conf_paths)
 
-  for app_conf in "$HOME/.config/sunshine/apps.json" \
-                  "$HOME/.var/app/$FLATPAK_ID/config/sunshine/apps.json"; do
-    [[ -f $app_conf ]] || continue
-    tmp=$(mktemp "${app_conf}.sunshine-vmon.XXXXXX") || return 1
-    TEMP_FILES+=("$tmp")
-    if ! jq '.apps = ((.apps // []) | map(select(.name != "Virtual Monitor (Hyprland)")))' "$app_conf" > "$tmp"; then
-      rm -f -- "$tmp"
-      echo "${red}Could not update $app_conf (invalid JSON?).${normal}" >&2
-      return 1
-    fi
-    if ! chmod --reference="$app_conf" "$tmp" || ! mv -f -- "$tmp" "$app_conf"; then
-      rm -f -- "$tmp"
-      echo "${red}Could not replace $app_conf.${normal}" >&2
-      return 1
-    fi
-    echo "  Hyprland app entry removed from $app_conf"
-  done
-
+  local runtime_state
   runtime_state="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-hyprland-vmon-$(id -u)"
   if [[ -f $runtime_state/state ]]; then
     IFS= read -r refs < "$runtime_state/state" || true
@@ -47,9 +34,9 @@ remove_vmon_hyprland() {
   if (( refs > 0 )); then
     echo "  An active Sunshine session still uses the Hyprland scripts; they were kept for its undo hook."
   else
-    start_script="$HOME/.local/bin/sunshine-start-hyprland-vmon"
-    stop_script="$HOME/.local/bin/sunshine-stop-hyprland-vmon"
-    runtime_script="$HOME/.local/bin/sunshine-hyprland-vmon-runtime.sh"
+    start_script="$BIN_DIR/sunshine-start-hyprland-vmon"
+    stop_script="$BIN_DIR/sunshine-stop-hyprland-vmon"
+    runtime_script="$BIN_DIR/sunshine-hyprland-vmon-runtime.sh"
     rm -f -- "$start_script" "$stop_script" "$runtime_script"
   fi
 

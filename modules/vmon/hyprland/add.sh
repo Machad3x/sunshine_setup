@@ -20,6 +20,7 @@ setup_vmon_hyprland() {
   fi
   if ! command -v flock >/dev/null 2>&1; then
     echo "${red}'flock' is required for safe Hyprland monitor lifecycle handling.${normal}" >&2
+    echo "  It is provided by the 'util-linux' package." >&2
     return 1
   fi
   if ! hyprctl monitors -j | jq -e 'type == "array"' >/dev/null 2>&1; then
@@ -38,10 +39,10 @@ setup_vmon_hyprland() {
     return 1
   fi
 
-  start_script="$HOME/.local/bin/sunshine-start-hyprland-vmon"
-  stop_script="$HOME/.local/bin/sunshine-stop-hyprland-vmon"
-  runtime_script="$HOME/.local/bin/sunshine-hyprland-vmon-runtime.sh"
-  mkdir -p "$HOME/.local/bin" || return 1
+  start_script="$BIN_DIR/sunshine-start-hyprland-vmon"
+  stop_script="$BIN_DIR/sunshine-stop-hyprland-vmon"
+  runtime_script="$BIN_DIR/sunshine-hyprland-vmon-runtime.sh"
+  mkdir -p "$BIN_DIR" || return 1
   if ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/start.sh" "$start_script" \
       || ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/stop.sh" "$stop_script" \
       || ! install -m 755 "$SCRIPT_DIR/modules/vmon/hyprland/runtime.sh" "$runtime_script"; then
@@ -63,40 +64,10 @@ setup_vmon_hyprland() {
     undo_cmd="$stop_script_q"
   fi
 
-  mkdir -p "$(dirname "$APP_CONF")"
-  [[ -f $APP_CONF ]] || printf '{"env":{},"apps":[]}\n' > "$APP_CONF"
-  local tmp
-  tmp=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
-  TEMP_FILES+=("$tmp")
-  if ! jq --arg name "$app_name" --arg cmd_do "$do_cmd" --arg cmd_undo "$undo_cmd" '
-    {
-      "name": $name, "cmd": "", "output": "", "image-path": "",
-      "auto-detach": true, "elevated": false, "exclude-global-prep-cmd": false,
-      "exit-timeout": 5, "wait-all": true,
-      "prep-cmd": [{"do": $cmd_do, "undo": $cmd_undo}]
-    } as $app
-    | .apps = ((.apps // []) | map(select(.name != $app.name)) + [$app])
-  ' "$APP_CONF" > "$tmp"; then
-    rm -f -- "$tmp"
-    echo "${red}Could not update $APP_CONF (invalid JSON?).${normal}" >&2
-    return 1
-  fi
-  if ! chmod --reference="$APP_CONF" "$tmp" || ! mv -f -- "$tmp" "$APP_CONF"; then
-    rm -f -- "$tmp"
-    echo "${red}Could not replace $APP_CONF.${normal}" >&2
-    return 1
-  fi
+  vmon_write_app "$APP_CONF" "$app_name" "$do_cmd" "$undo_cmd" || return 1
 
   if ! hypr_vmon_prepare_config "$conf"; then
-    tmp=$(mktemp "${APP_CONF}.sunshine-vmon.XXXXXX") || return 1
-    TEMP_FILES+=("$tmp")
-    if ! jq --arg name "$app_name" '.apps = ((.apps // []) | map(select(.name != $name)))' "$APP_CONF" > "$tmp" \
-        || ! chmod --reference="$APP_CONF" "$tmp" \
-        || ! mv -f -- "$tmp" "$APP_CONF"; then
-      rm -f -- "$tmp"
-      echo "${red}Could not roll back the Hyprland app entry in $APP_CONF.${normal}" >&2
-      return 1
-    fi
+    vmon_remove_app "$APP_CONF" "$app_name"
     echo "${red}Could not configure capture=wlr and output_name in $conf.${normal}" >&2
     return 1
   fi

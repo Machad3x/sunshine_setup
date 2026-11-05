@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
-source "$(dirname -- "${BASH_SOURCE[0]}")/sunshine-hyprland-vmon-runtime.sh"
+source "${BASH_SOURCE[0]%/*}/sunshine-hyprland-vmon-runtime.sh"
 hypr_vmon_resolve_session
 
-NAME="sunshine-vmon"
-STATE_DIR="${XDG_RUNTIME_DIR:-$HOME/.cache}/sunshine-hyprland-vmon-$(id -u)"
+NAME=$HYPR_VMON_NAME
+STATE_DIR=$(hypr_vmon_runtime_state_dir)
 PHYSICAL_STATE="$STATE_DIR/physical-monitors.json"
 [[ -d $STATE_DIR ]] || exit 0
 exec 9>"$STATE_DIR/lock"
