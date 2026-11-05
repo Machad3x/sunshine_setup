@@ -34,8 +34,9 @@ install_deb() {
       version=""
     fi
   else
+    # First "tag_name": "..." line, with any leading v stripped (no PCRE needed).
     version=$(printf '%s' "$release_json" \
-      | grep -oP '"tag_name"\s*:\s*"\K[^"]+' | sed 's/^v//' || true)
+      | sed -nE '/"tag_name"[[:space:]]*:/ { s/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]*)".*/\1/; p; q; }')
   fi
 
   if [[ -z $version ]]; then
@@ -121,17 +122,17 @@ install_flatpak() {
     || echo "  ${yellow}Warning:${normal} additional-install.sh returned non-zero (udev/input rules may need manual setup)."
 
   repair_flatpak_startup
+  invalidate_install_cache
 
   local conf="$HOME/.var/app/$FLATPAK_ID/config/sunshine/sunshine.conf"
-  local found=0
-  for _ in $(seq 1 30); do
+  local found=0 i
+  for ((i = 0; i < 20; i++)); do
     [[ -f "$conf" ]] && { found=1; break; }
-    sleep 1
+    sleep 0.5
   done
   if (( ! found )); then
-    echo "  ${yellow}Warning:${normal} Sunshine did not create its config (service may not have started — no graphical session?)."
-    mkdir -p "$(dirname "$conf")"
-    touch "$conf"
+    echo "  ${yellow}Warning:${normal} Sunshine did not create its config within 10 seconds (service may not have started — no graphical session?)."
+    echo "  ${dim}Start Sunshine once ('start --flatpak' or menu option 5) before configuring the virtual monitor.${normal}"
   fi
 
   echo
@@ -171,8 +172,16 @@ install_native() {
   echo "  Installing Sunshine (${bold}native${normal})..."
   case $DISTRO in
     fedora)
-      sudo dnf copr enable -y lizardbyte/stable
-      sudo dnf install -y sunshine
+      if ! sudo dnf copr enable -y lizardbyte/stable; then
+        echo "${red}Could not enable the COPR repository lizardbyte/stable.${normal}" >&2
+        echo "  Check your connection and DNF configuration, or choose the Flatpak option." >&2
+        return 1
+      fi
+      if ! sudo dnf install -y sunshine; then
+        echo "${red}Could not install 'sunshine' via dnf on Fedora.${normal}" >&2
+        echo "  Try 'dnf search sunshine', or choose the Flatpak option." >&2
+        return 1
+      fi
       ;;
     cachyos)
       if ! sudo pacman -S --needed --noconfirm sunshine; then
@@ -198,7 +207,7 @@ install_native() {
       ;;
     ubuntu)
       # Same URL scheme as Debian 13, with numeric Ubuntu releases as fallbacks.
-      install_deb ubuntu "$(ubuntu_version)" 26.10 26.04 24.04 22.04
+      install_deb ubuntu "$(ubuntu_version)" 26.10 26.04 25.10 25.04 24.04 22.04
       ;;
     debian)
       # Debian 13 only: upstream .deb is built against trixie's ABI.
@@ -214,6 +223,7 @@ install_native() {
   flatpak_installed && systemctl --user disable --now "$FLATPAK_UNIT" 2>/dev/null || true
 
   repair_native_startup
+  invalidate_install_cache
 
   echo
   echo "  ${bold}Native Sunshine installed.${normal} Web UI: https://localhost:47990"
@@ -232,34 +242,40 @@ warn_unsupported_distro() {
   echo
 }
 
+# Offers System/User Flatpak scopes and installs the chosen one.
+# EOF or "Back" return 0; an installer failure propagates its status.
+install_flatpak_picked() {
+  choose "Flatpak scope" "System (--system)" "User (--user)" "Back" || return 0
+  case "$REPLY" in
+    1) install_flatpak system ;;
+    2) install_flatpak user   ;;
+  esac
+}
+
 action_install() {
   case "${1:-}" in
     --flatpak-system) install_flatpak system; return ;;
     --flatpak-user)   install_flatpak user;   return ;;
     --flatpak)        install_flatpak system; return ;;
     --native)         install_native;         return ;;
+    "") ;;
+    *)
+      echo "${red}Unknown install option: $1${normal}" >&2
+      echo "  Use --flatpak-system, --flatpak-user or --native (see --help)." >&2
+      return 2
+      ;;
   esac
 
   if (( UNSUPPORTED_DISTRO )); then
     warn_unsupported_distro
-    choose "Flatpak scope" "System (--system)" "User (--user)" "Back" || return 0
-    case "$REPLY" in
-      1) install_flatpak system ;;
-      2) install_flatpak user   ;;
-      3) return 0               ;;
-    esac
+    install_flatpak_picked
     return
   fi
 
   if (( IMMUTABLE )); then
     echo
     echo "  ${bold}Immutable system detected.${normal} Flatpak is recommended."
-    choose "Flatpak scope" "System (--system)" "User (--user)" "Back" || return 0
-    case "$REPLY" in
-      1) install_flatpak system ;;
-      2) install_flatpak user   ;;
-      3) return 0               ;;
-    esac
+    install_flatpak_picked
     return
   fi
 
@@ -270,12 +286,7 @@ action_install() {
     echo "  Only Flatpak is supported on this Debian version."
     echo "  ${dim}(See https://github.com/LizardByte/Sunshine for the upstream build matrix.)${normal}"
     echo
-    choose "Method" "Flatpak (System scope)" "Flatpak (User scope)" "Back" || return 1
-    case "$REPLY" in
-      1) install_flatpak system ;;
-      2) install_flatpak user   ;;
-      3) return 0               ;;
-    esac
+    install_flatpak_picked
     return
   fi
 
