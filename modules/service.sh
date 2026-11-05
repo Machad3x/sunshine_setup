@@ -46,6 +46,21 @@ configure_startup_dropin() {
   echo "  ${dim}drop-in:${normal}  $file"
 }
 
+# Common core of the two repair paths: writes the startup drop-in, disables
+# the other flavor's unit so autostart does not fight, then enables+restarts.
+apply_startup_fix() {
+  local unit=$1 delay=$2 other_unit=$3 ok_label=$4
+  configure_startup_dropin "$unit" "$delay" || return 1
+  systemctl --user disable --now "$other_unit" 2>/dev/null || true
+  systemctl --user daemon-reload
+  systemctl --user enable "$unit" 2>/dev/null || true
+  if systemctl --user restart "$unit" 2>/dev/null; then
+    echo "  ${green}${ok_label} restarted.${normal}"
+  else
+    echo "  ${yellow}Configured but failed to restart. Check: journalctl --user -u $unit -n 50${normal}"
+  fi
+}
+
 repair_native_startup() {
   if ! native_installed; then
     echo "${red}Native Sunshine is not installed.${normal}" >&2
@@ -68,16 +83,7 @@ repair_native_startup() {
   fi
 
   unit=$(native_unit)
-  configure_startup_dropin "$unit" 5 || return 1
-
-  systemctl --user disable --now sunshine.service 2>/dev/null || true
-  systemctl --user daemon-reload
-  systemctl --user enable "$unit" 2>/dev/null || true
-  if systemctl --user restart "$unit" 2>/dev/null; then
-    echo "  ${green}Service restarted.${normal}"
-  else
-    echo "  ${yellow}Configured but failed to restart. Check: journalctl --user -u $unit -n 50${normal}"
-  fi
+  apply_startup_fix "$unit" 5 "sunshine.service" "Service"
 }
 
 repair_flatpak_startup() {
@@ -85,17 +91,7 @@ repair_flatpak_startup() {
     echo "${red}Sunshine Flatpak is not installed.${normal}" >&2
     return 1
   fi
-
-  configure_startup_dropin "$FLATPAK_UNIT" 0 || return 1
-
-  systemctl --user disable --now sunshine.service 2>/dev/null || true
-  systemctl --user daemon-reload
-  systemctl --user enable "$FLATPAK_UNIT" 2>/dev/null || true
-  if systemctl --user restart "$FLATPAK_UNIT" 2>/dev/null; then
-    echo "  ${green}Flatpak service restarted.${normal}"
-  else
-    echo "  ${yellow}Configured but failed to restart. Check: journalctl --user -u $FLATPAK_UNIT -n 50${normal}"
-  fi
+  apply_startup_fix "$FLATPAK_UNIT" 0 "sunshine.service" "Flatpak service"
 }
 
 repair_startup() {
@@ -117,7 +113,7 @@ repair_startup() {
   elif flatpak_installed; then
     repair_flatpak_startup
   else
-    echo "${red}Sunshine is not installed.${normal}" >&2
+    echo "${red}Sunshine is not installed.${normal} Install it first (menu option 1, or the 'install' command)." >&2
     return 1
   fi
 }
@@ -199,54 +195,67 @@ service_action() {
   esac
 }
 
+# manage_service [scope]: optional --native/--flatpak skips mode detection.
 manage_service() {
-  pick_mode || return 1
-  local unit
-  if [[ $MODE == flatpak ]]; then unit=$FLATPAK_UNIT; else unit=$(native_unit); fi
-  local scope=--native
-  [[ $MODE == flatpak ]] && scope=--flatpak
+  local scope="${1:-}" unit label
+  case $scope in
+    --native)
+      if ! native_installed; then
+        echo "${red}Native Sunshine is not installed.${normal} Use 'install --native' first." >&2
+        return 1
+      fi
+      MODE=native; unit=$(native_unit)
+      ;;
+    --flatpak)
+      if ! flatpak_installed; then
+        echo "${red}Sunshine Flatpak is not installed.${normal} Use 'install --flatpak-system' or 'install --flatpak-user' first." >&2
+        return 1
+      fi
+      MODE=flatpak; unit=$FLATPAK_UNIT
+      ;;
+    "")
+      pick_mode || return 1
+      if [[ $MODE == flatpak ]]; then unit=$FLATPAK_UNIT; else unit=$(native_unit); fi
+      ;;
+    *)
+      echo "Unknown scope: $scope" >&2
+      return 2
+      ;;
+  esac
+  if [[ $MODE == flatpak ]]; then label=--flatpak; else label=--native; fi
 
-  local back_num=9
-  [[ $MODE == native ]] && back_num=10
+  local -a options=(
+    "Start"
+    "Stop"
+    "Restart"
+    "Enable  (auto-start at login)"
+    "Disable (no auto-start)"
+    "Show status  (systemctl --user status)"
+    "Show logs    (last 50 lines)"
+    "Follow logs  (live, Ctrl+C to stop)"
+  )
+  [[ $MODE == native ]] && options+=("Repair native startup (setcap + drop-in)")
+  options+=("Back")
 
+  local action
   while true; do
     echo
     echo "  ${bold}Sunshine service${normal}  ${dim}($MODE)${normal}"
     print_service_status "$unit" || true
     echo
-    printf "  ${cyan}1${normal})  Start\n"
-    printf "  ${cyan}2${normal})  Stop\n"
-    printf "  ${cyan}3${normal})  Restart\n"
-    printf "  ${cyan}4${normal})  Enable  (auto-start at login)\n"
-    printf "  ${cyan}5${normal})  Disable (no auto-start)\n"
-    printf "  ${cyan}6${normal})  Show status  (systemctl --user status)\n"
-    printf "  ${cyan}7${normal})  Show logs    (last 50 lines)\n"
-    printf "  ${cyan}8${normal})  Follow logs  (live, Ctrl+C to stop)\n"
-    if [[ $MODE == native ]]; then
-      printf "  ${cyan}9${normal})  Repair native startup (setcap + drop-in)\n"
-    fi
-    printf "  ${cyan}%d${normal})  Back\n" "$back_num"
-    echo
-    printf "  ${bold}Select [1-%d]:${normal} " "$back_num"
-
-    local choice
-    if ! read -r choice; then echo; return 0; fi
-    [[ -z $choice ]] && continue
-    if [[ ! $choice =~ ^[0-9]+$ ]]; then
-      printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1; continue
-    fi
-    if (( 10#$choice == back_num )); then return 0; fi
-    case "$choice" in
-      1) service_action start "$scope" || true ;;
-      2) service_action stop "$scope" || true ;;
-      3) service_action restart "$scope" || true ;;
-      4) service_action enable "$scope" || true ;;
-      5) service_action disable "$scope" || true ;;
-      6) service_action status "$scope" || true ;;
-      7) service_action logs "$scope" || true ;;
-      8) service_action follow "$scope" || true ;;
+    choose "Select" "${options[@]}" || { echo; return 0; }
+    action=$REPLY
+    if (( action == ${#options[@]} )); then return 0; fi
+    case $action in
+      1) service_action start "$label" || true ;;
+      2) service_action stop "$label" || true ;;
+      3) service_action restart "$label" || true ;;
+      4) service_action enable "$label" || true ;;
+      5) service_action disable "$label" || true ;;
+      6) service_action status "$label" || true ;;
+      7) service_action logs "$label" || true ;;
+      8) service_action follow "$label" || true ;;
       9) if [[ $MODE == native ]]; then repair_native_startup; fi ;;
-      *) printf "  ${red}Invalid option '%s'.${normal}\n" "$choice"; sleep 1 ;;
     esac
   done
 }
